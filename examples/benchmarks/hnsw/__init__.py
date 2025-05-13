@@ -1,1 +1,2 @@
 from  .GetEntryPointsKernel.kernel0 import GetEntryPointsKernel0
+from  .GetEntryPointsKernel.kernel1 import GetEntryPointsKernel1
