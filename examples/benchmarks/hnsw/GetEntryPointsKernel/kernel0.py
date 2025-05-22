@@ -9,6 +9,7 @@ import math
 import os
 from utils.utils import NdpKernel, make_memory_map, pad8, make_input_files
 import configs
+from ..hnsw_utils import *
 
 DEGUG = False
 ITER = 0
@@ -23,38 +24,68 @@ class GetEntryPointsKernel0(NdpKernel):
         super().__init__()
         self.INT32_SIZE = 4
         self.INT_MAX = 99999999
-        self.qdata_addr    = 0x800000000000
-        # self.qnodes_addr = 0x810000000000
-        self.target_data_addr = 0x820000000000
-        self.target_nodes_addr = 0x830000000000
-        self.graph_addr = 0x840000000000
-        self.degree_addr = 0x850000000000
-        self.visited_addr = 0x860000000000
-        self.visited_list_addr = 0x870000000000
-        self.entries_addr = 0x880000000000
-        self.acc_visited_cnt_addr = 0x890000000000
-        self.spad_addr    = 0x1000000000000000
-        self.base_addr = self.qdata_addr
+        address_list = get_address_list()
+        
+        self.qdata_addr = address_list[0]
+        self.target_data_addr = address_list[1]
+        self.target_nodes_addr = address_list[2]
+        self.graph_addr = address_list[3]
+        self.degree_addr = address_list[4]
+        self.visited_addr = address_list[5]
+        self.visited_list_addr = address_list[6]
+        self.visited_table_addr = address_list[7]
+        self.entries_addr = address_list[8]
+        self.acc_visited_cnt_addr = address_list[9]
+        self.neighbors_addr = address_list[10]
+        self.global_cand_nodes_addr = address_list[11]
+        self.global_cand_distances_addr = address_list[12]
 
-        # Additional info
-        self.graph_info_addr = 0x8a0000000000
-        self.iteration_info_addr = 0x8b0000000000
-        self.partial_sum_addr = 0x8c0000000000
-        self.calculated_distance_addr = 0x8d0000000000
+        self.graph_info_addr = address_list[13]
+        self.update_info_addr = address_list[14]
+        self.finish_info_addr = address_list[15]
+        self.iter_info_addr = address_list[16]
 
-        self.tmp_entries_addr = 0x8e0000000000
-        self.current_entry_distance_addr = 0x8f0000000000
-        self.query_iteration_addr = 0x810000000000
+        self.calculated_distance_addr = address_list[17]
+        self.entry_distance_addr = address_list[18]
+
+        self.partial_sum_addr = address_list[19]
+        self.tmp_entries_addr = address_list[20]
+
+        # self.spad_addr    = 0x1000000000000000
+        # self.base_addr = self.qdata_addr
+
+        # self.qdata_addr    = 0x800000000000
+        # # self.qnodes_addr = 0x810000000000
+        # self.target_data_addr = 0x820000000000
+        # self.target_nodes_addr = 0x830000000000
+        # self.graph_addr = 0x840000000000
+        # self.degree_addr = 0x850000000000
+        # self.visited_addr = 0x860000000000
+        # self.visited_list_addr = 0x870000000000
+        # self.entries_addr = 0x880000000000
+        # self.acc_visited_cnt_addr = 0x890000000000
+        # self.spad_addr    = 0x1000000000000000
+        # self.base_addr = self.qdata_addr
+
+        # # Additional info
+        # self.graph_info_addr = 0x8a0000000000
+        # self.iteration_info_addr = 0x8b0000000000
+        # self.partial_sum_addr = 0x8c0000000000
+        # self.calculated_distance_addr = 0x8d0000000000
+
+        # self.tmp_entries_addr = 0x8e0000000000
+        # self.current_entry_distance_addr = 0x8f0000000000
+        # self.query_iteration_addr = 0x810000000000
 
         self.sync = 0
         self.kernel_id = 0
         self.kernel_name = 'hnsw_GetEntryPointsKernel'
         self.graph_file = os.path.join(os.path.dirname(__file__), f'../data/graph.txt')
-        self.iter_file = os.path.join(os.path.dirname(__file__), f'../data/{LEVEL}_{ITER}.txt')
+        self.iter_file = os.path.join(os.path.dirname(__file__), f'../data/GetEntryPoints_{LEVEL}_{ITER}.txt')
 
         # input memorymap
-        self.num_query, self.num_data, self.num_dims, self.max_level, self.max_m, self.max_m0, self.enter_point, graphs, queries, data = self.read_file()
-        entry_id, future_entry_ids, candidate_ids, partial_sums_result, calculated_distances, current_entry_distances = self.read_iter_file(self.max_level)
+        self.num_query, self.num_data, self.num_dims, self.max_level, self.max_m, self.max_m0, self.enter_point, graphs, queries, data = read_graph_file(self.graph_file)
+        entry_id, future_entry_ids, candidate_ids, partial_sums_result, calculated_distances, current_entry_distances = read_step1_iter_file(self.iter_file)
         qdata_array = self.preprocess_with_data(queries, True)
         target_data_array = self.preprocess_with_data(data)
         visited_array = None
@@ -84,17 +115,18 @@ class GetEntryPointsKernel0(NdpKernel):
 
         self.partial_sums_result = pad8(np.array(partial_sums_result, dtype=np.int32))
         self.calculated_distances = pad8(np.array(calculated_distances, dtype=np.int32))
-        
+
         self.tmp_entries = pad8(np.array([ENTRY_INIT_ID] * self.num_query, dtype=np.int32))
         self.current_entry_distances = pad8(np.array(current_entry_distances * self.num_query, dtype=np.int32))
 
         self.iteration_info = pad8(np.array([ITER, 0, 0], dtype=np.int32))  # Current iter, update, finish
         self.query_iteration = pad8(np.array([0] * self.num_query, dtype=np.int32))
         self.bound = len(qdata_array) * configs.data_size
-        self.input_addrs = [self.qdata_addr, self.target_data_addr, self.target_nodes_addr, self.graph_addr, self.degree_addr,
-                            self.visited_addr, self.visited_list_addr, self.entries_addr, self.acc_visited_cnt_addr,
-                            self.graph_info_addr, self.iteration_info_addr, self.partial_sum_addr, self.calculated_distance_addr,
-                            self.tmp_entries_addr, self.current_entry_distance_addr, self.query_iteration_addr]
+        # self.input_addrs = [self.qdata_addr, self.target_data_addr, self.target_nodes_addr, self.graph_addr, self.degree_addr,
+        #                     self.visited_addr, self.visited_list_addr, self.entries_addr, self.acc_visited_cnt_addr,
+        #                     self.graph_info_addr, self.iteration_info_addr, self.partial_sum_addr, self.calculated_distance_addr,
+        #                     self.tmp_entries_addr, self.current_entry_distance_addr, self.query_iteration_addr]
+        self.input_addrs = address_list
 
     def make_kernel(self):
         packet_size = configs.packet_size
@@ -110,28 +142,28 @@ class GetEntryPointsKernel0(NdpKernel):
         template += f'li x1, {configs.spad_addr}\n'
 
         # Query data address
-        template += f'ld x3, (x1)\n' # qdata_addr
+        template += f'ld x3, {get_arg_offset(self.qdata_addr)}(x1)\n' # qdata_addr
         template += f'add x4, x3, x2\n' # qdata_addr + offset (256 Byte, 64 elements)
 
         # Get num query
-        template += f'ld x26, 72(x1)\n' # graph_info_addr
+        template += f'ld x26, {get_arg_offset(self.graph_info_addr)}(x1)\n' # graph_info_addr
         template += f'lw x27, (x26)\n'
         template += f'bge NDPID, x27, .SKIP0\n'
 
         # Get entry id
-        template += f'ld x5, 56(x1)\n' # entries_addr
+        template += f'ld x5, {get_arg_offset(self.entries_addr)}(x1)\n' # entries_addr
         template += f'muli x6, NDPID, {data_size}\n'
         template += f'add x7, x5, x6\n' # entry address
         template += f'lw x8, (x7)\n'  # load entry id
 
         # Get entry id
-        template += f'ld x9, 16(x1)\n' # target_nodes_addr
+        template += f'ld x9, {get_arg_offset(self.target_nodes_addr)}(x1)\n' # target_nodes_addr
         template += f'muli x10, x8, {data_size}\n' # entry node offset
         template += f'add x11, x9, x10\n' # entry id
         template += f'lw x11, (x11)\n'
 
         # Get entry data address
-        template += f'ld x27, 8(x1)\n' # target_data_addr
+        template += f'ld x27, {get_arg_offset(self.target_data_addr)}(x1)\n' # target_data_addr
         template += f'muli x18, x11, {data_size}\n'
         template += f'muli x18, x18, {self.num_dims}\n'
         template += f'add x28, x27, x18\n'
@@ -174,7 +206,7 @@ class GetEntryPointsKernel0(NdpKernel):
         template += f'blt x12, x13, .LOOP0\n'
 
         # Calculate store address and store partial sum
-        template += f'ld x16, 88(x1)\n' # partial_sum_addr
+        template += f'ld x16, {get_arg_offset(self.partial_sum_addr)}(x1)\n' # partial_sum_addr
         template += f'li x19, {configs.stride * configs.ndp_units}\n'
         template += f'div x17, x2, x19\n' # 몇번째 stride 에 있는지
         template += f'muli x17, x17, {packet_size}\n'
@@ -196,12 +228,12 @@ class GetEntryPointsKernel0(NdpKernel):
 # ------------------ SYNC ------------------
         template += f'KERNELBODY:\n'  # Sync
         template += f'li x1, {configs.spad_addr}\n'
-        template += f'ld x13, 72(x1)\n' # graph_info_addr
+        template += f'ld x13, {get_arg_offset(self.graph_info_addr)}(x1)\n' # graph_info_addr
         template += f'lw x13, (x13)\n'  # num query
 
         template += f'bge NDPID, x13, .SKIP1\n'
 
-        template += f'ld x16, 88(x1)\n' # partial_sum_addr
+        template += f'ld x16, {get_arg_offset(self.partial_sum_addr)}(x1)\n' # partial_sum_addr
 
         template += f'li x17, {64 * data_size}\n'
         template += f'mul x18, NDPID, x17\n'
@@ -230,12 +262,12 @@ class GetEntryPointsKernel0(NdpKernel):
         template += f'blt x20, x24, .LOOP1\n'
 
         # Store global reduce sum
-        template += f'ld x25, 96(x1)\n' # calculated_distance_addr
+        template += f'ld x25, {get_arg_offset(self.calculated_distance_addr)}(x1)\n' # calculated_distance_addr
         template += f'muli x26, NDPID, {data_size}\n'
         template += f'add x26, x25, x26\n'
         template += f'sw x21, (x26)\n'  # store distance
 
-        template += f'ld x25, 112(x1)\n' # current_entry_distance_addr
+        template += f'ld x25, {get_arg_offset(self.entry_distance_addr)}(x1)\n' # current_entry_distance_addr
         template += f'muli x26, NDPID, {data_size}\n'
         template += f'add x26, x25, x26\n'
         template += f'sw x21, (x26)\n'  # store distance
@@ -247,7 +279,6 @@ class GetEntryPointsKernel0(NdpKernel):
 
     def make_input_map(self):
       return make_memory_map([(self.qdata_addr, self.qdata),
-                              # (self.qnodes_addr, self.qnodes),
                               (self.target_data_addr, self.target_data),
                               (self.target_nodes_addr, self.target_nodes),
                               (self.graph_addr, self.graph),
@@ -257,16 +288,14 @@ class GetEntryPointsKernel0(NdpKernel):
                               (self.entries_addr, self.entries),
                               (self.acc_visited_cnt_addr, self.acc_visited_cnt),
                               (self.graph_info_addr, self.graph_info),
-                              (self.iteration_info_addr, self.iteration_info),
                               (self.partial_sum_addr, self.partial_sum),
                               (self.calculated_distance_addr, self.distance),
                               (self.tmp_entries_addr, self.entries),
-                              (self.current_entry_distance_addr, self.distance),
-                              (self.query_iteration_addr, self.query_iteration)])
+                              (self.entry_distance_addr, self.distance),
+                              (self.iter_info_addr, self.query_iteration)])
 
     def make_output_map(self):
       return make_memory_map([(self.qdata_addr, self.qdata),
-                              # (self.qnodes_addr, self.qnodes),
                               (self.target_data_addr, self.target_data),
                               (self.target_nodes_addr, self.target_nodes),
                               (self.graph_addr, self.graph),
@@ -276,126 +305,11 @@ class GetEntryPointsKernel0(NdpKernel):
                               (self.entries_addr, self.entries),
                               (self.acc_visited_cnt_addr, self.acc_visited_cnt),
                               (self.graph_info_addr, self.graph_info),
-                              (self.iteration_info_addr, self.iteration_info),
                               (self.partial_sum_addr, self.partial_sums_result),
                               (self.calculated_distance_addr, self.calculated_distances),
                               (self.tmp_entries_addr, self.entries),
-                              (self.current_entry_distance_addr, self.calculated_distances),
-                              (self.query_iteration_addr, self.query_iteration)])
-
-    def read_file(self):
-      graph = {}
-      num_data = num_dims = max_level = max_m = max_m0 = enter_point = None
-      qdata = []
-      data = []
-
-      with open(self.graph_file, 'r') as f:
-        mode = 0 # 0: normal, 1: query, 2: data
-
-        for line in f:
-          line = line.strip()
-          if not line or line.startswith("#"):
-            if line == "# Query ID, Data":
-              mode = 1
-              continue
-            elif line == "# Data ID, Data":
-              mode = 2
-              continue
-            elif line.startswith("# num_query:"):
-              num_query = int(line.split(":")[1].strip())
-            elif line.startswith("# num_data:"):
-              num_data = int(line.split(":")[1].strip())
-            elif line.startswith("# num_dims:"):
-              num_dims = int(line.split(":")[1].strip())
-            elif line.startswith("# max_level:"):
-              max_level = int(line.split(":")[1].strip())
-            elif line.startswith("# max_m:"):
-              parts = line.split(":")[1].split(",")
-              max_m = int(line.split(":")[1].split(",")[0].strip())
-              max_m0 = int(line.split(":")[-1].strip())
-            elif line.startswith("# enter_point:"):
-              enter_point = int(line.split(":")[1].strip())
-            mode = 0
-            continue
-
-          # Query
-          if mode == 1:
-            q_idx = int(line.split(":")[0])
-            q_data = list(map(int, line.split(":")[1].strip().split()))
-            qdata.append(q_data)
-          elif mode == 2:
-            idx = int(line.split(":")[0])
-            _data = list(map(int, line.split(":")[1].strip().split()))
-            data.append(_data)
-
-          # Data line: level src dst dist
-          parts = line.split()
-          if len(parts) != 4:
-            continue  # skip invalid lines
-          level, src, dst, dist = int(parts[0]), int(parts[1]), int(parts[2]), float(parts[3])
-
-          if level not in graph:
-            graph[level] = {}
-          if src not in graph[level]:
-            graph[level][src] = []
-          graph[level][src].append((dst, dist))
-      return num_query, num_data, num_dims, max_level, max_m, max_m0, enter_point, graph, qdata, data
-
-    def read_iter_file(self, max_level):
-      entry_ids = []
-      future_entry_ids = []
-      candidate_ids = []
-      partial_sums  = []
-      calculated_distances  = []
-      current_entry_distances  = []
-
-      with open(self.iter_file, 'r') as f:
-        mode = 0
-        for line in f:
-          line = line.strip()
-          if not line or line.startswith("#"):
-            if line.startswith("# Entry id:"):
-              mode = 0
-              continue
-            if line.startswith("# Future entry id:"):
-              mode = 1
-              continue
-            elif line.startswith("# Candidate id:"):
-              mode = 2
-              continue
-            elif line.startswith("# Entry Partial Sum:"):
-              mode = 3
-              continue
-            elif line.startswith("# Calculated Distance:"):
-              mode = 4
-              continue
-            elif line.startswith("# Current Entry Distance:"):
-              mode = 5
-              continue
-            continue
-
-          if mode == 0:
-            entry_id = int(line.split(":")[1].strip())
-            entry_ids.append(entry_id)
-          elif mode == 1:
-            future_entry_id = int(line.split(":")[1].strip())
-            future_entry_ids.append(future_entry_id)
-          elif mode == 2:
-            candidate_id = int(line.split(":")[1].strip())
-            candidate_ids.append(candidate_id)
-          elif mode == 3:
-            partial_sum = list(map(int, line.split(":")[1].strip().split()))
-            if len(partial_sum) < 64:
-              partial_sum.extend([0] * (64 - len(partial_sum)))
-            partial_sums.extend(partial_sum)
-          elif mode == 4:
-            calculated_distance = int(line.split(":")[1].strip())
-            calculated_distances.append(calculated_distance)
-          elif mode == 5:
-            current_entry_distance = int(line.split(":")[1].strip())
-            current_entry_distances.append(current_entry_distance)
-
-      return entry_ids, future_entry_ids, candidate_ids, partial_sums, calculated_distances, current_entry_distances
+                              (self.entry_distance_addr, self.calculated_distances),
+                              (self.iter_info_addr, self.query_iteration)])
 
     def preprocess_with_data(self, data, is_query=False):
       stride = configs.stride
