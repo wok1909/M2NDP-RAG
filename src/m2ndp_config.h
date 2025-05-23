@@ -48,6 +48,7 @@ class M2NDPConfig {
   int get_matched_unit_id(uint64_t origin_addr) {
     return origin_addr / m_stride_size % m_num_ndp_units;
   }
+  const int get_uthread_size(int ndp_id, uint64_t size);
   const int get_num_channels() { return m_num_channels; }
   const bool is_enable_sub_core() { return m_enable_sub_core; }
   const int get_num_sub_core() { return m_num_sub_core; }
@@ -60,7 +61,7 @@ class M2NDPConfig {
   const int get_num_memories() { return m_num_memories; }
   const int get_num_memory_buffers() { return m_num_memory_buffers; }
   const int get_links_per_host() { return m_links_per_host; }
-  const int get_links_per_memory_buffer() { return m_links_per_memory_buffer; } 
+  const int get_links_per_memory_buffer() { return m_links_per_memory_buffer; }
   const int get_cxl_link_buffer_size() { return m_cxl_link_buffer_size; }
   const int get_num_m2ndps() { return m_num_memory_buffers; }
   const int get_links_per_m2ndp() { return m_links_per_memory_buffer; }
@@ -254,7 +255,7 @@ class M2NDPConfig {
   std::string m_l2d_config_str;
   int m_l2d_hit_latency;
   int m_l2d_num_banks = 1;
-  
+
   std::string m_l0icache_config_str;
   int m_l0icache_hit_latency = 1;
   std::string m_l1icache_config_str;

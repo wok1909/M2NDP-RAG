@@ -67,6 +67,7 @@ struct RequestInfo {
   uint32_t kernel_id;
   uint32_t kernel_body_id;
   uint64_t addr;
+  uint64_t size;
   uint64_t offset;
   MemoryMap* scratchpad_map;
 };
@@ -92,6 +93,7 @@ struct CSR {
 struct Context {
   int ndp_id;
   int sub_core_id;
+  int uthread_id;
   int inst_col_id;
   CSR *csr;
   bool *blocking;  // instruction blocking
@@ -102,6 +104,7 @@ struct Context {
   RequestInfo *request_info;
   bool last_inst;
   int max_pc;
+  int uthread_sz;
   bool exit;
 };
 

@@ -77,7 +77,7 @@ NdpUnit::NdpUnit(M2NDPConfig* config, MemoryMap* memory_map, NdpStats* stats,
   m_icache_config.init(m_config->get_l1icache_config(), m_config);
   m_icache = new ReadOnlyCache("l1icache", m_icache_config, m_id, 0, &m_inst_req);
   m_icache_queue = DelayQueue<mem_fetch *>("l1_icache_queue", true, m_config->get_request_queue_size());
-                            
+
   m_sub_core_units.resize(m_num_sub_core);
   for (int sub_core_id = 0; sub_core_id < m_num_sub_core; sub_core_id++) {
     m_sub_core_units[sub_core_id] = new SubCore(m_config, m_memory_map, stats, m_id, sub_core_id,
@@ -85,12 +85,12 @@ NdpUnit::NdpUnit(M2NDPConfig* config, MemoryMap* memory_map, NdpStats* stats,
                                       &(m_to_ldst_unit[sub_core_id]), &(m_to_spad_unit[sub_core_id]),
                                       &(m_to_v_ldst_unit[sub_core_id]), &(m_to_v_spad_unit[sub_core_id]),
                                       &m_finished_contexts);
-    
+
   }
 
-  m_ldst_unit = new LDSTUnit(m_config, m_id, 
+  m_ldst_unit = new LDSTUnit(m_config, m_id,
                             &m_finished_contexts,
-                            &m_to_mem, &m_from_mem, 
+                            &m_to_mem, &m_from_mem,
                             &m_to_reg,
                             m_dtlb, m_stats);
   m_last_sub_core_fetched = 0;
@@ -139,6 +139,8 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
     scratchpad_map->Store(spad_addr + outter * PACKET_SIZE, data);
   }
   int req_id = 0;
+  int uthread_id = 0;
+  int uthread_sz = m_config->get_uthread_size(m_id, kinfo->size);
   try {
     for(int k_id = 0 ; k_id < ndp_kernel->num_kernel_bodies; k_id++) {
       uint32_t count = 0;
@@ -150,6 +152,7 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
         if (first) {
           RequestInfo info;
           info.addr = kinfo->base_addr;
+          info.size = kinfo->size;
           info.offset = m_id;
           info.kernel_id = kinfo->kernel_id;
           info.launch_id = kinfo->launch_id;
@@ -165,7 +168,7 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
         info.launch_id = kinfo->launch_id;
         info.kernel_body_id = k_id;
         info.id = req_id++;
-        m_sub_core_units[0]->ExecuteKernelBody(scratchpad_map, &info, k_id);
+        m_sub_core_units[0]->ExecuteKernelBody(scratchpad_map, &info, k_id, uthread_sz, uthread_id++);
       }
     }
     if (!first) {
@@ -263,7 +266,7 @@ void NdpUnit::rf_writeback() {
       } else if (m_sub_core_units[sub_core_id]->is_freg(*reg_id)) {
         num_freg_wb_cnt++;
       }
-      
+
       delete reg_id;
     }
     //update max wb per cycle
@@ -284,7 +287,7 @@ void NdpUnit::from_mem_handle() {
 
           m_dtlb->fill(mf);
           m_from_mem[bank].pop();
-          
+
         }
       } else if (m_itlb->waiting_for_fill(mf)) {
         if (m_itlb->fill_port_free()) {
@@ -330,7 +333,7 @@ void NdpUnit::l1_inst_cache_cycle() {
     int sub_core_id = mf->get_sub_core_id();
 
     std::deque<CacheEvent> events;
-    CacheRequestStatus status = 
+    CacheRequestStatus status =
       m_icache->access(mf->get_addr(), m_config->get_ndp_cycle(), mf, events);
     if (status == HIT) {
       if (!m_from_icache[sub_core_id].full()) {
@@ -359,7 +362,7 @@ void NdpUnit::l1_inst_cache_cycle() {
 }
 
 void NdpUnit::to_l1_inst_cache() {
-  //connect m_to_icache to icache 
+  //connect m_to_icache to icache
   //each sub-core is connected to l1 icache
   for (int sub_core_id = 0; sub_core_id < m_num_sub_core; sub_core_id++) {
     if (!m_to_icache[sub_core_id].empty()) {
@@ -472,7 +475,7 @@ void NdpUnit::connect_instruction_buffer_to_sub_core() {
       }
       break;
     }
-  } 
+  }
 }
 
 void NdpUnit::request_instruction_lookup() {
@@ -508,7 +511,7 @@ bool NdpUnit::is_active() {
   }
   return !m_finished_contexts.empty() || !to_mem_empty || !from_mem_empty ||
         sub_core_active ||
-        m_uthread_generator->is_active() || 
+        m_uthread_generator->is_active() ||
         m_ldst_unit->active() ||
         !m_inst_req.empty() ||
         !m_tlb_req.empty() ||

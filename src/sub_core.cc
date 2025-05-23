@@ -25,7 +25,7 @@ SubCore::SubCore(M2NDPConfig* config, MemoryMap* memory_map, NdpStats* stats, in
                 fifo_pipeline<std::pair<NdpInstruction, Context>> *to_v_ldst_unit,
                 fifo_pipeline<std::pair<NdpInstruction, Context>> *to_v_spad_unit,
                 std::queue<Context> *finished_contexts)
-    : m_config(config), m_memory_map(memory_map), m_stats(stats), m_id(id), m_sub_core_id(sub_core_id), 
+    : m_config(config), m_memory_map(memory_map), m_stats(stats), m_id(id), m_sub_core_id(sub_core_id),
     m_inst_column_q(inst_column_q), m_to_icache(to_icache), m_from_icache(from_icache), m_finished_contexts(finished_contexts),
     m_to_ldst_unit(to_ldst_unit), m_to_spad_unit(to_spad_unit), m_to_v_ldst_unit(to_v_ldst_unit), m_to_v_spad_unit(to_v_spad_unit) {
   m_num_ndp = config->get_num_ndp_units();
@@ -44,7 +44,7 @@ SubCore::SubCore(M2NDPConfig* config, MemoryMap* memory_map, NdpStats* stats, in
                                         m_to_v_spad_unit,
                                         m_stats);
 
-  if (m_config->get_ideal_icache()) 
+  if (m_config->get_ideal_icache())
     m_instruction_queue->set_ideal_icache();
   m_active_queque_count = 0;
   m_issue_fail_count = 0;
@@ -55,22 +55,22 @@ SubCore::SubCore(M2NDPConfig* config, MemoryMap* memory_map, NdpStats* stats, in
 void SubCore::ExecuteInitializer(MemoryMap* spad_map, RequestInfo* info) {
   std::deque<NdpInstruction> renamed = m_register_unit->Convert(
       m_ndp_kernel->initializer_insts, info->id, info);
-  ExecuteInsts_Array(spad_map, renamed, info, m_ndp_kernel->loop_map);
+  ExecuteInsts_Array(spad_map, renamed, info, m_ndp_kernel->loop_map, 1);
   m_register_unit->FreeRegs(info->id);
 }
 
 void SubCore::ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
-                                int kernel_body_id) {
+                                int kernel_body_id, int uthread_sz, int uthread_id) {
   std::deque<NdpInstruction> renamed = m_register_unit->Convert(
       m_ndp_kernel->kernel_body_insts[kernel_body_id], info->id, info);
-  ExecuteInsts_Array(spad_map, renamed, info, m_ndp_kernel->loop_map);
+  ExecuteInsts_Array(spad_map, renamed, info, m_ndp_kernel->loop_map, uthread_sz, uthread_id);
   m_register_unit->FreeRegs(info->id);
 }
 
 void SubCore::ExecuteFinalizer(MemoryMap* spad_map, RequestInfo* info) {
   std::deque<NdpInstruction> finalizer_renamed =
       m_register_unit->Convert(m_ndp_kernel->finalizer_insts, info->id, info);
-  ExecuteInsts_Array(spad_map, finalizer_renamed, info, m_ndp_kernel->loop_map);
+  ExecuteInsts_Array(spad_map, finalizer_renamed, info, m_ndp_kernel->loop_map, 1);
   m_register_unit->FreeRegs(info->id);
 }
 
@@ -93,15 +93,20 @@ void SubCore::ExecuteInsts(MemoryMap* spad_map,
 void SubCore::ExecuteInsts_Array(MemoryMap* spad_map,
                                  std::deque<NdpInstruction> insts,
                                  RequestInfo* info,
-                                 const std::map<int, int>& loop_map) {
+                                 const std::map<int, int>& loop_map,
+                                 int uthread_sz,
+                                 int uthread_id) {
   CSR csr;
   Context context;
   context.ndp_id = m_id;
+  context.sub_core_id = m_sub_core_id;
+  context.uthread_id = uthread_id;
   context.csr = &csr;
   context.memory_map = m_memory_map;
   context.scratchpad_map = spad_map;
   context.register_map = m_register_unit;
   context.request_info = info;
+  context.uthread_sz = uthread_sz;
   for (int i = 0; i < insts.size(); i++) {
     try {
       insts.at(i).Execute(context);
@@ -273,7 +278,7 @@ void SubCore::print_sub_core_stats() {
                  avg_active_queue / m_config->get_uthread_slots() * 100);
   else
     spdlog::debug(
-        "NDP {:2} SUB-CORE {:2}: average active queue count: {:.2f} / {} ({:.2f} %)", 
+        "NDP {:2} SUB-CORE {:2}: average active queue count: {:.2f} / {} ({:.2f} %)",
         m_id, m_sub_core_id, avg_active_queue, m_config->get_uthread_slots(),
         avg_active_queue / m_config->get_uthread_slots() * 100);
   m_active_queque_count = 0;

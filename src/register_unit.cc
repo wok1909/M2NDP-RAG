@@ -55,9 +55,9 @@ std::deque<NdpInstruction> RegisterUnit::Convert(
     std::deque<NdpInstruction> insts, int packet_id, RequestInfo* req) {
   std::deque<NdpInstruction> renamed_insts;
   RegisterMapKey key = packet_id;
-  
-  //Initialize x1, and x2 
-  int x1_reg = REG_X_BASE + 1; // ADDR 
+
+  //Initialize x1, and x2
+  int x1_reg = REG_X_BASE + 1; // ADDR
   int x2_reg = REG_X_BASE + 2; // OFFSET
   int px1 = m_free_xregs.front();
   m_free_xregs.pop_front();
@@ -478,6 +478,10 @@ int64_t RegisterUnit::ReadXreg(int reg, Context& context) {
   int64_t x_value;
   if (reg == REG_NDP_ID)
     x_value = context.ndp_id;
+  else if (reg == REG_UTHREAD_ID)
+    x_value = context.uthread_id;
+  else if (reg == REG_UTHREAD_SZ)
+    x_value = context.uthread_sz;
   else if (reg == REG_ADDR)
     x_value = context.request_info->addr;
   else if (reg == REG_REQUEST_OFFSET)

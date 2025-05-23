@@ -45,6 +45,8 @@ static const int REG_REQUEST_DATA = SPCIAL_REG_START + 3;
 static const int REG_ADDR = SPCIAL_REG_START + 4;
 static const int REG_VSTART = SPCIAL_REG_START + 5;
 static const int REG_X0 = SPCIAL_REG_START + 6;
+static const int REG_UTHREAD_ID = SPCIAL_REG_START + 7;
+static const int REG_UTHREAD_SZ = SPCIAL_REG_START + 8;
 
 static const int SPECIAL_IMMEDIATE_START = 1600000;
 static const int IMM_E8 = SPECIAL_IMMEDIATE_START + 1;  /* SEW = 8 bit  */

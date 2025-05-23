@@ -108,6 +108,10 @@ uint32_t GetRegValue(std::string src) {
     return REG_ADDR;
   } else if (src == "NDPID") {
     return REG_NDP_ID;
+  } else if (src == "UTHREADID") {
+    return REG_UTHREAD_ID;
+  } else if (src == "UTHREADSZ") {
+    return REG_UTHREAD_SZ;
   } else if (src == "e8") {
     return IMM_E8;
   } else if (src == "e16") {
@@ -526,7 +530,7 @@ NdpInstruction ParseNdpInstruction(std::string line) {
     if (src.find(',') != -1) {
       std::string vs2 = src.substr(src.find(',') + 1);
       inst.src[1] = GetRegValue(vs2);
-    }    
+    }
   }
   inst.segCnt = segCnt;
   return inst;
@@ -652,7 +656,7 @@ KernelLaunchInfo* M2NDPParser::parse_kernel_launch(std::string line, int host_id
   for (int i = 0; i < info->num_float_args; i++) {
     spdlog::info("float_args[{}]: {}", i, info->float_args[i]);
   }
-  
+
   return info;
 }
 
@@ -729,7 +733,7 @@ void M2NDPParser::parse_to_const(M2NDPConfig *config, std::string config_dir,
     config->m_ideal_icache = atoi(value.c_str());
   else if (name == "use_dram_tlb")
     config->m_use_dram_tlb = atoi(value.c_str());
-  else if (name == "skip_l1d") 
+  else if (name == "skip_l1d")
     config->m_skip_l1d = atoi(value.c_str());
   else if (name == "l1d_config")
     config->m_l1d_config_str = value;
@@ -757,9 +761,9 @@ void M2NDPParser::parse_to_const(M2NDPConfig *config, std::string config_dir,
     config->m_itlb_config = value;
   else if (name == "tlb_hit_latency")
     config->m_tlb_hit_latency = atoi(value.c_str());
-  else if (name == "max_kernel_register") 
+  else if (name == "max_kernel_register")
     config->m_max_kernel_register = atoi(value.c_str());
-  else if (name == "max_kernel_launch") 
+  else if (name == "max_kernel_launch")
     config->m_max_kernel_launch = atoi(value.c_str());
   else if (name == "max_dma_list_size")
     config->m_max_dma_list_size = atoi(value.c_str());

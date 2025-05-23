@@ -23,7 +23,7 @@ class SubCore {
   SubCore(M2NDPConfig* config, MemoryMap* memory_map, int id, int sub_core_id);
   void ExecuteInitializer(MemoryMap* spad_map, RequestInfo* info);
   void ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
-                         int kenrel_body_id);
+                         int kenrel_body_id, int uthread_sz, int uthread_id);
   void ExecuteFinalizer(MemoryMap* spad_map, RequestInfo* info);
   void set_ndp_kernel(NdpKernel* ndp_kernel) {m_ndp_kernel = ndp_kernel;}
 
@@ -35,7 +35,7 @@ class SubCore {
           fifo_pipeline<std::pair<NdpInstruction, Context>> *to_v_ldst_unit,
           fifo_pipeline<std::pair<NdpInstruction, Context>> *to_v_spad_unit,
           std::queue<Context> *finished_contexts);
-                
+
   void cycle();
   void execute_instruction();
   void l0_inst_cache_cycle();
@@ -91,7 +91,8 @@ class SubCore {
                     RequestInfo* info);
   void ExecuteInsts_Array(MemoryMap* spad_map, std::deque<NdpInstruction> insts,
                           RequestInfo* info,
-                          const std::map<int, int>& loop_map);
+                          const std::map<int, int>& loop_map,
+                          int uthread_sz, int uthread_id = 0);
 };
 }  // namespace NDPSim
 #endif  // FUNCSIM_SUB_CORE_H_

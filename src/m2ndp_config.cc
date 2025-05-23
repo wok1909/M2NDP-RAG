@@ -48,6 +48,17 @@ const uint64_t M2NDPConfig::get_m2ndp_index(uint64_t origin_addr) {
   return dev_bits;
 }
 
+const int M2NDPConfig::get_uthread_size(int ndp_id, uint64_t size) {
+  int n_round = size / (m_stride_size * m_num_ndp_units);
+  int uthread_size = n_round * (m_stride_size / PACKET_SIZE);
+  int rem = size % (m_stride_size * m_num_ndp_units) - m_stride_size * ndp_id;
+  if (rem > 0) {
+    rem = rem > m_stride_size ? m_stride_size : rem;
+    uthread_size += (rem + PACKET_SIZE - 1) / PACKET_SIZE;
+  }
+  return uthread_size;
+}
+
 uint64_t M2NDPConfig::get_partial_bits(memory_decode mask, uint64_t addr) {
   unsigned result = 0x0;
   int mask_bit_count = std::bitset<64>(m_addrdec_mask[mask]).count();
@@ -78,7 +89,7 @@ uint64_t M2NDPConfig::get_higher_bits(memory_decode mask, uint64_t addr) {
   for (int i = 0; i < 64; i++) {
     if((mask_bits & 0x1) == 0) {
       max_zero_bit = i;
-    } 
+    }
     mask_bits = mask_bits >> 1;
   }
   return addr >> max_zero_bit;
@@ -215,7 +226,7 @@ void M2NDPConfig::print_config(FILE *fp) {
 }
 
 void M2NDPConfig::increase_core_time() {
-  m_core_time += m_core_period; 
+  m_core_time += m_core_period;
 }
 
 bool M2NDPConfig::is_core_time_minimum() {
@@ -225,10 +236,10 @@ bool M2NDPConfig::is_core_time_minimum() {
   double next_buffer_dram_time = m_buffer_dram_time + m_buffer_dram_period;
   double next_buffer_ndp_time = m_buffer_ndp_time + m_buffer_ndp_period;
   double next_cache_time = m_cache_time + m_cache_period;
-  return ((m_core_time < next_link_time) 
-          && (m_core_time < next_buffer_dram_time) 
-          && (m_core_time < next_buffer_ndp_time) 
-          && (m_core_time < next_cache_time) 
+  return ((m_core_time < next_link_time)
+          && (m_core_time < next_buffer_dram_time)
+          && (m_core_time < next_buffer_ndp_time)
+          && (m_core_time < next_cache_time)
           && (m_core_time < next_dram_time));
 }
 #endif
