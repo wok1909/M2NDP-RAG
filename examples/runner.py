@@ -23,6 +23,7 @@ from benchmarks.imdb_three_col_AND import ThreeColANDKernel
 from benchmarks.memset import *
 from benchmarks.memcpy import *
 from benchmarks.spmv import *
+from benchmarks.tests import *
 from utils.utils import *
 
 packet_size = 32

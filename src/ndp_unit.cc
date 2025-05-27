@@ -200,8 +200,10 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
       if (m_uthread_sync_idx.size()) {
         next_body = m_uthread_sync_idx.at(0);
         for (int i=1; i<m_uthread_sync_idx.size(); i++)
-          if (m_uthread_sync_idx.at(i) < next_body)
-            next_body = m_uthread_sync_idx.at(i);
+          if (m_uthread_sync_idx.at(i) != next_body) {
+            fprintf(stderr, "[Synchronize error] Attempts to synchronize at kernel body %d while kernel body %d waiting\n", m_uthread_sync_idx.at(i), next_body);
+            abort();
+          }
       }
       prev_k_id = k_id;
       k_id = next_body;
