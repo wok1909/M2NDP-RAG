@@ -35,7 +35,7 @@ struct NdpKernel {
   int num_kernel_bodies;
   std::deque<NdpInstruction> initializer_insts;
   std::deque <std::deque<NdpInstruction>> kernel_body_insts;
-  std::map<int, int> loop_map;
+  std::vector<std::map<int, int>> loop_map;
   std::deque<NdpInstruction> finalizer_insts;
 };
 
@@ -70,6 +70,18 @@ struct RequestInfo {
   uint64_t size;
   uint64_t offset;
   MemoryMap* scratchpad_map;
+
+  void clear() {
+    type = static_cast<RequestType>(0);
+    id = 0;
+    launch_id = 0;
+    kernel_id = 0;
+    kernel_body_id = 0;
+    addr = 0;
+    size = 0;
+    offset = 0;
+    scratchpad_map = nullptr;
+  }
 };
 
 class MemoryMap;
@@ -100,7 +112,7 @@ struct Context {
   MemoryMap *memory_map;
   MemoryMap *scratchpad_map;
   RegisterUnit *register_map;
-  std::map<int, int> *loop_map;
+  std::vector<std::map<int, int>> *loop_map;
   RequestInfo *request_info;
   bool last_inst;
   int max_pc;
@@ -114,7 +126,7 @@ struct InstColumn {
   int kernel_id;
   RequestType type;
   std::deque<NdpInstruction> insts;
-  std::map<int, int> loop_map;
+  std::vector<std::map<int, int>> loop_map;
   RequestInfo *req;
   CSR csr;
   int xregs;

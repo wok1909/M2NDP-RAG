@@ -109,7 +109,6 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
   assert(kinfo->smem_size <= m_config->get_spad_size() * 1024); // in KB
   MemoryMap* scratchpad_map =
       new HashMemoryMap(SCRATCHPAD_BASE, kinfo->smem_size);
-  bool first = true;
   uint64_t spad_addr = SCRATCHPAD_BASE;
   int num_args = kinfo->arg_size / DOUBLE_SIZE - kinfo->num_float_args;
   int num_args_per_packet = PACKET_SIZE / DOUBLE_SIZE;
@@ -139,47 +138,90 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
     scratchpad_map->Store(spad_addr + outter * PACKET_SIZE, data);
   }
   int req_id = 0;
-  int uthread_id = 0;
+  int k_id = 0;
   int uthread_sz = m_config->get_uthread_size(m_id, kinfo->size);
+  m_sub_core_units[0]->SubCoreInitialize(ndp_kernel->num_kernel_bodies, uthread_sz);
+
+  // Initialize uthread sync index
+  m_uthread_sync_idx.resize(uthread_sz);
+  for (int i=0; i<uthread_sz; i++)
+    m_uthread_sync_idx.at(i) = 0;
+
+  int prev_k_id = 0;
+  int deadlock_detect = 0;
   try {
-    for(int k_id = 0 ; k_id < ndp_kernel->num_kernel_bodies; k_id++) {
+    /* Initializer */
+    RequestInfo info;
+    info.addr = kinfo->base_addr;
+    info.size = kinfo->size;
+    info.offset = m_id;
+    info.kernel_id = kinfo->kernel_id;
+    info.launch_id = kinfo->launch_id;
+    info.id = req_id++;
+    //only use 1 sub-core in functional only mode
+    m_sub_core_units[0]->ExecuteInitializer(scratchpad_map, &info);
+
+    /* KernelBody */
+    uint32_t count = 0;
+    int uthread_id = 0;
+    while (count * PACKET_SIZE < kinfo->size) {
+      uint64_t target_addr = kinfo->base_addr + count * PACKET_SIZE;
+      count++;
+      int addr_ndp_id = m_config->get_matched_unit_id(target_addr);
+      if (addr_ndp_id != m_id) continue;
+      m_sub_core_units[0]->InitializeRegister(&info, uthread_id++);
+    }
+    while (k_id < ndp_kernel->num_kernel_bodies) {
       uint32_t count = 0;
+      uthread_id = 0;
       while (count * PACKET_SIZE < kinfo->size) {
         uint64_t target_addr = kinfo->base_addr + count * PACKET_SIZE;
         count++;
         int addr_ndp_id = m_config->get_matched_unit_id(target_addr);
         if (addr_ndp_id != m_id) continue;
-        if (first) {
-          RequestInfo info;
-          info.addr = kinfo->base_addr;
-          info.size = kinfo->size;
-          info.offset = m_id;
-          info.kernel_id = kinfo->kernel_id;
-          info.launch_id = kinfo->launch_id;
-          info.id = req_id++;
-          //only use 1 sub-core in functional only mode
-          m_sub_core_units[0]->ExecuteInitializer(scratchpad_map, &info);
-          first = false;
+        if (m_uthread_sync_idx.at(uthread_id) > k_id) {
+          uthread_id++;
+          continue;
         }
         uint64_t offset = target_addr - kinfo->base_addr;
-        RequestInfo info;
+        info.clear();
         info.addr = target_addr;  // base_addr, in previous
         info.offset = offset;
         info.launch_id = kinfo->launch_id;
         info.kernel_body_id = k_id;
         info.id = req_id++;
-        m_sub_core_units[0]->ExecuteKernelBody(scratchpad_map, &info, k_id, uthread_sz, uthread_id++);
+        m_uthread_sync_idx.at(uthread_id) = m_sub_core_units[0]->ExecuteKernelBody(scratchpad_map, &info, k_id, uthread_sz, uthread_id);
+
+        if (m_uthread_sync_idx.at(uthread_id) == k_id)
+          m_uthread_sync_idx.at(uthread_id)++;
+        uthread_id++;
       }
+      int next_body = k_id + 1;
+      if (m_uthread_sync_idx.size()) {
+        next_body = m_uthread_sync_idx.at(0);
+        for (int i=1; i<m_uthread_sync_idx.size(); i++)
+          if (m_uthread_sync_idx.at(i) < next_body)
+            next_body = m_uthread_sync_idx.at(i);
+      }
+      prev_k_id = k_id;
+      k_id = next_body;
+
+      if (k_id == prev_k_id)
+        deadlock_detect++;
+
+      if (deadlock_detect > 1000)
+        fprintf(stderr, "[ERROR] SYNCRONIZE ERROR (INFINIT LOOP DETECTED)\n");
     }
-    if (!first) {
-      RequestInfo info;
-      info.addr = kinfo->base_addr;
-      info.offset = m_id;
-      info.kernel_id = kinfo->kernel_id;
-      info.launch_id = kinfo->launch_id;
-      info.id = req_id++;
-      m_sub_core_units[0]->ExecuteFinalizer(scratchpad_map, &info);
-    }
+
+    /* Finalizer  */
+    info.clear();
+    info.addr = kinfo->base_addr;
+    info.offset = m_id;
+    info.kernel_id = kinfo->kernel_id;
+    info.launch_id = kinfo->launch_id;
+    info.id = req_id++;
+    m_sub_core_units[0]->ExecuteFinalizer(scratchpad_map, &info);
+
     delete scratchpad_map;
   } catch (const std::runtime_error& error) {
     spdlog::error("=============================NDP Unit {} DUMP=============================", m_id);

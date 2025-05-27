@@ -51,11 +51,45 @@ void RegisterUnit::SetNotReady(int reg) { m_not_ready.insert(reg); }
 
 void RegisterUnit::SetReady(int reg) { m_not_ready.erase(reg); }
 
-std::deque<NdpInstruction> RegisterUnit::Convert(
-    std::deque<NdpInstruction> insts, int packet_id, RequestInfo* req) {
-  std::deque<NdpInstruction> renamed_insts;
-  RegisterMapKey key = packet_id;
+void RegisterUnit::ResizeRegisterData(int uthread_sz) {
+  m_register_data.clear();
+  m_register_data.resize(uthread_sz);
+}
 
+void RegisterUnit::LoadRegisters(int uthread_id, MemoryMap* scratchpad_map) {
+  m_xreg_mapping = m_register_data.at(uthread_id).xreg_mapping;
+  m_freg_mapping = m_register_data.at(uthread_id).freg_mapping;
+  m_vreg_mapping = m_register_data.at(uthread_id).vreg_mapping;
+  m_free_xregs = m_register_data.at(uthread_id).free_xregs;
+  m_free_fregs = m_register_data.at(uthread_id).free_fregs;
+  m_free_vregs = m_register_data.at(uthread_id).free_vregs;
+
+  m_xreg_table = m_register_data.at(uthread_id).xreg_table;
+  m_freg_table = m_register_data.at(uthread_id).freg_table;
+  m_vreg_table = m_register_data.at(uthread_id).vreg_table;
+
+  m_after_rename = m_register_data.at(uthread_id).after_rename;
+  m_not_ready = m_register_data.at(uthread_id).not_ready;
+}
+
+void RegisterUnit::StoreRegisters(int uthread_id, MemoryMap* scratchpad_map) {
+  m_register_data.at(uthread_id).xreg_mapping = m_xreg_mapping;
+  m_register_data.at(uthread_id).freg_mapping = m_freg_mapping;
+  m_register_data.at(uthread_id).vreg_mapping = m_vreg_mapping;
+  m_register_data.at(uthread_id).free_xregs = m_free_xregs;
+  m_register_data.at(uthread_id).free_fregs = m_free_fregs;
+  m_register_data.at(uthread_id).free_vregs = m_free_vregs;
+
+  m_register_data.at(uthread_id).xreg_table = m_xreg_table;
+  m_register_data.at(uthread_id).freg_table = m_freg_table;
+  m_register_data.at(uthread_id).vreg_table = m_vreg_table;
+
+  m_register_data.at(uthread_id).after_rename = m_after_rename;
+  m_register_data.at(uthread_id).not_ready = m_not_ready;
+}
+
+void RegisterUnit::InitializeRegister(int uthread_id, RequestInfo* req) {
+  RegisterMapKey key = uthread_id;
   //Initialize x1, and x2
   int x1_reg = REG_X_BASE + 1; // ADDR
   int x2_reg = REG_X_BASE + 2; // OFFSET
@@ -67,7 +101,12 @@ std::deque<NdpInstruction> RegisterUnit::Convert(
   m_xreg_mapping[key][x2_reg] = px2;
   m_xreg_table[px1 - REG_PX_BASE] = req->addr;
   m_xreg_table[px2 - REG_PX_BASE] = req->offset;
+}
 
+std::deque<NdpInstruction> RegisterUnit::Convert(
+    std::deque<NdpInstruction> insts, int packet_id, RequestInfo* req) {
+  std::deque<NdpInstruction> renamed_insts;
+  RegisterMapKey key = packet_id;
   cvt_vlmul_status = IMM_M1;
 
   for (int i = 0; i < insts.size(); i++) {

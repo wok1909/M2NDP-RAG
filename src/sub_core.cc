@@ -55,22 +55,57 @@ SubCore::SubCore(M2NDPConfig* config, MemoryMap* memory_map, NdpStats* stats, in
 void SubCore::ExecuteInitializer(MemoryMap* spad_map, RequestInfo* info) {
   std::deque<NdpInstruction> renamed = m_register_unit->Convert(
       m_ndp_kernel->initializer_insts, info->id, info);
-  ExecuteInsts_Array(spad_map, renamed, info, m_ndp_kernel->loop_map, 1);
+  std::vector<std::deque<NdpInstruction>> initializer_renamed;
+  initializer_renamed.push_back(renamed);
+  ExecuteInsts_Array(spad_map, initializer_renamed, info, m_ndp_kernel->loop_map, 0, 1);
   m_register_unit->FreeRegs(info->id);
 }
 
-void SubCore::ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
+void SubCore::SubCoreInitialize(int num_kernel_bodies, int uthread_sz) {
+  branch_idx.resize(uthread_sz);
+  insts_list.resize(uthread_sz);
+  for (int i=0; i<uthread_sz; i++) {
+    branch_idx.at(i) = 0;
+    insts_list.at(i).resize(num_kernel_bodies);
+  }
+  m_register_unit->ResizeRegisterData(uthread_sz);
+}
+
+void SubCore::LoadContext(RequestInfo* info, int uthread_id) {
+  m_register_unit->LoadRegisters(uthread_id, info->scratchpad_map);
+}
+
+void SubCore::StoreContext(RequestInfo* info, int uthread_id) {
+  m_register_unit->StoreRegisters(uthread_id, info->scratchpad_map);
+  m_register_unit->FreeRegs(uthread_id);
+}
+
+void SubCore::InitializeRegister(RequestInfo* info, int uthread_id) {
+  m_register_unit->InitializeRegister(uthread_id, info);
+  StoreContext(info, uthread_id);
+}
+
+int SubCore::ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
                                 int kernel_body_id, int uthread_sz, int uthread_id) {
+  LoadContext(info, uthread_id);
+
   std::deque<NdpInstruction> renamed = m_register_unit->Convert(
-      m_ndp_kernel->kernel_body_insts[kernel_body_id], info->id, info);
-  ExecuteInsts_Array(spad_map, renamed, info, m_ndp_kernel->loop_map, uthread_sz, uthread_id);
-  m_register_unit->FreeRegs(info->id);
+    m_ndp_kernel->kernel_body_insts[kernel_body_id], uthread_id, info);
+
+  insts_list.at(uthread_id).at(kernel_body_id) = renamed;
+
+  int result = ExecuteInsts_Array(spad_map, insts_list.at(uthread_id), info, m_ndp_kernel->loop_map, kernel_body_id, uthread_sz, uthread_id);
+  StoreContext(info, uthread_id);
+
+  return result;
 }
 
 void SubCore::ExecuteFinalizer(MemoryMap* spad_map, RequestInfo* info) {
-  std::deque<NdpInstruction> finalizer_renamed =
+  std::deque<NdpInstruction> renamed =
       m_register_unit->Convert(m_ndp_kernel->finalizer_insts, info->id, info);
-  ExecuteInsts_Array(spad_map, finalizer_renamed, info, m_ndp_kernel->loop_map, 1);
+  std::vector<std::deque<NdpInstruction>> finalizer_renamed;
+  finalizer_renamed.push_back(renamed);
+  ExecuteInsts_Array(spad_map, finalizer_renamed, info, m_ndp_kernel->loop_map, 0, 1);
   m_register_unit->FreeRegs(info->id);
 }
 
@@ -90,10 +125,11 @@ void SubCore::ExecuteInsts(MemoryMap* spad_map,
   }
 }
 
-void SubCore::ExecuteInsts_Array(MemoryMap* spad_map,
-                                 std::deque<NdpInstruction> insts,
+int SubCore::ExecuteInsts_Array(MemoryMap* spad_map,
+                                 std::vector<std::deque<NdpInstruction>> insts_list,
                                  RequestInfo* info,
-                                 const std::map<int, int>& loop_map,
+                                 const std::vector<std::map<int, int>>& loop_map,
+                                 int kernel_body_id,
                                  int uthread_sz,
                                  int uthread_id) {
   CSR csr;
@@ -107,12 +143,25 @@ void SubCore::ExecuteInsts_Array(MemoryMap* spad_map,
   context.register_map = m_register_unit;
   context.request_info = info;
   context.uthread_sz = uthread_sz;
-  for (int i = 0; i < insts.size(); i++) {
+  std::deque<NdpInstruction> insts = insts_list.at(kernel_body_id);
+  if (uthread_id >= uthread_sz || insts.size() == 0)
+    return true;
+  for (int i = branch_idx.at(uthread_id); i < insts.size(); i++) {
     try {
       insts.at(i).Execute(context);
       int key = insts.at(i).IsBranch();
       if (key >= 0) {
-        i = loop_map.find(key)->second - 1;
+        for (int j=0; j < loop_map.size(); j++) {
+          auto it = loop_map.at(j).find(key);
+          if (it != loop_map.at(j).end()) {
+            if (j != kernel_body_id) {
+              branch_idx.at(uthread_id) = it->second;
+              return j;
+            }
+            i = it->second - 1;
+            break;
+          }
+        }
       }
     } catch (const std::runtime_error& error) {
       spdlog::error("=============================EXECUTION PANIC=============================");
@@ -123,6 +172,8 @@ void SubCore::ExecuteInsts_Array(MemoryMap* spad_map,
       throw error;
     }
   }
+  branch_idx.at(uthread_id) = 0;
+  return kernel_body_id;
 }
 
 #ifdef TIMING_SIMULATION

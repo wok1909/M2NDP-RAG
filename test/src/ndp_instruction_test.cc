@@ -8,7 +8,7 @@ Context make_basic_context() {
   Context context;
   context.ndp_id = 0;
   context.csr = new CSR();
-  context.loop_map = new std::map<int, int>();
+  context.loop_map = new std::vector<std::map<int, int>>();
   context.register_map = new RegisterUnit(32, 32, 32);
   context.request_info = new RequestInfo();
   context.last_inst = false;

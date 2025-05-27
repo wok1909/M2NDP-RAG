@@ -21,8 +21,12 @@ class SubCore {
  public:
   SubCore() {}
   SubCore(M2NDPConfig* config, MemoryMap* memory_map, int id, int sub_core_id);
+  void SubCoreInitialize(int num_kernel_bodies, int uthread_sz);
+  void LoadContext(RequestInfo* info, int uthread_id);
+  void StoreContext(RequestInfo* info, int uthread_id);
+  void InitializeRegister(RequestInfo* info, int uthread_id);
   void ExecuteInitializer(MemoryMap* spad_map, RequestInfo* info);
-  void ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
+  int ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
                          int kenrel_body_id, int uthread_sz, int uthread_id);
   void ExecuteFinalizer(MemoryMap* spad_map, RequestInfo* info);
   void set_ndp_kernel(NdpKernel* ndp_kernel) {m_ndp_kernel = ndp_kernel;}
@@ -67,6 +71,10 @@ class SubCore {
   NdpKernel* m_ndp_kernel;
   MemoryMap* m_memory_map;
   RegisterUnit* m_register_unit;
+
+  std::vector<std::vector<std::deque<NdpInstruction>>> insts_list;
+  std::vector<int> branch_idx;
+
 #ifdef TIMING_SIMULATION
   InstructionQueue* m_instruction_queue;
   ExecutionUnit* m_execution_unit;
@@ -89,10 +97,10 @@ class SubCore {
 #endif
   void ExecuteInsts(MemoryMap* spad_map, std::deque<NdpInstruction> insts,
                     RequestInfo* info);
-  void ExecuteInsts_Array(MemoryMap* spad_map, std::deque<NdpInstruction> insts,
+  int ExecuteInsts_Array(MemoryMap* spad_map, std::vector<std::deque<NdpInstruction>> insts_list,
                           RequestInfo* info,
-                          const std::map<int, int>& loop_map,
-                          int uthread_sz, int uthread_id = 0);
+                          const std::vector<std::map<int, int>>& loop_map,
+                          int kernel_body_id, int uthread_sz, int uthread_id = 0);
 };
 }  // namespace NDPSim
 #endif  // FUNCSIM_SUB_CORE_H_

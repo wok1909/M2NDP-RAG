@@ -52,7 +52,7 @@ ExecutionUnit::ExecutionUnit(M2NDPConfig *config, int ndp_id, int sub_core_id, R
 }
 
 bool ExecutionUnit::active() {
-  return  !m_to_ldst_unit->empty()|| !m_to_spad_unit->empty() || 
+  return  !m_to_ldst_unit->empty()|| !m_to_spad_unit->empty() ||
           !m_to_v_ldst_unit->empty() || !m_to_v_spad_unit->empty() ||
           !check_unit_finished();
 }
@@ -204,14 +204,14 @@ Status ExecutionUnit::issue(NdpInstruction &inst, Context context) {
           uint64_t addr = MemoryMap::FormatAddr(base_addr + idx);
           inst.addr_set.insert(addr);
         }
-      } 
+      }
       else {
         uint64_t addr = MemoryMap::FormatAddr(base_addr);
         inst.addr_set.insert(addr);
       }
       inst_issue_interval *= inst.addr_set.size();
       if (inst.addr_set.empty()) throw std::runtime_error("addr set is empty");
-    } else { 
+    } else {
       // General Load Store Address Calculation
       int req_size = m_config->get_packet_size();
       if(inst.opcode == VLE16 || inst.opcode == VSE16) req_size = 16;
@@ -222,7 +222,7 @@ Status ExecutionUnit::issue(NdpInstruction &inst, Context context) {
         inst.addr_set.insert(MemoryMap::FormatAddr(base_addr + inst.src[1] + i * m_config->get_packet_size()));
     }
   }
-  
+
   if (m_config->is_functional_sim() || spad_op || (alu_op_type != ADDRESS_OP))
     inst.Execute(context);
 

@@ -29,15 +29,32 @@ struct RegisterStats {
     for (int i = 0; i < REG_STAT_NUM; i++)
       sum.register_stats[i] = register_stats[i] + other.register_stats[i];
     return sum;
-  } 
+  }
   RegisterStats &operator+=(const RegisterStats &other) {
     for (int i = 0; i < REG_STAT_NUM; i++)
       register_stats[i] += other.register_stats[i];
     return *this;
-  } 
+  }
   RegisterStats() {
     for (int i = 0; i < REG_STAT_NUM; i++) register_stats[i] = 0;
   }
+};
+
+struct RegisterData {
+  RegisterMap xreg_mapping;
+  RegisterMap freg_mapping;
+  RegisterMap vreg_mapping;
+  RegisterBinding double_vreg;
+  std::deque<int> free_xregs;
+  std::deque<int> free_fregs;
+  std::deque<int> free_vregs;
+
+  std::vector<int64_t> xreg_table;
+  std::vector<float> freg_table;
+  std::vector<VectorData> vreg_table;
+
+  std::deque<InstColumn*> after_rename;
+  robin_hood::unordered_set<int> not_ready;
 };
 
 class RegisterUnit {
@@ -53,6 +70,10 @@ class RegisterUnit {
   bool CheckReady(int reg);
   void SetNotReady(int reg);
   void SetReady(int reg);
+
+  void LoadRegisters(int uthread_id, MemoryMap* scratchpad_map);
+  void StoreRegisters(int uthread_id, MemoryMap* scratchpad_map);
+  void InitializeRegister(int uthread_id, RequestInfo* req);
 
   /*Renaming*/
   std::deque<NdpInstruction> Convert(std::deque<NdpInstruction> input,
@@ -85,6 +106,8 @@ class RegisterUnit {
   bool IsFreg(int reg_id);
   void DumpRegisterFile(int packet_id);
 
+  void ResizeRegisterData(int uthread_sz);
+
  private:
   int m_num_xregs;
   int m_num_fregs;
@@ -109,6 +132,8 @@ class RegisterUnit {
 
   std::deque<InstColumn*> m_after_rename;
   robin_hood::unordered_set<int> m_not_ready;
+
+  std::vector<RegisterData> m_register_data;
 
   bool CheckSpecialReg(int reg);
   // int GetVregIndex(int reg);
