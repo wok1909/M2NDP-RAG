@@ -145,7 +145,7 @@ int SubCore::ExecuteInsts_Array(MemoryMap* spad_map,
   context.uthread_sz = uthread_sz;
   std::deque<NdpInstruction> insts = insts_list.at(kernel_body_id);
   if (uthread_id >= uthread_sz || insts.size() == 0)
-    return true;
+    return kernel_body_id;
   for (int i = branch_idx.at(uthread_id); i < insts.size(); i++) {
     try {
       insts.at(i).Execute(context);

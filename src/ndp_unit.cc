@@ -169,6 +169,10 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
       count++;
       int addr_ndp_id = m_config->get_matched_unit_id(target_addr);
       if (addr_ndp_id != m_id) continue;
+      uint64_t offset = target_addr - kinfo->base_addr;
+      info.clear();
+      info.addr = target_addr;  // base_addr, in previous
+      info.offset = offset;
       m_sub_core_units[0]->InitializeRegister(&info, uthread_id++);
     }
     while (k_id < ndp_kernel->num_kernel_bodies) {
