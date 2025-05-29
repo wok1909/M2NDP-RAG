@@ -56,30 +56,7 @@ class GetEntryPointsKernel1(NdpKernel):
         self.spad_addr    = 0x1000000000000000
         self.base_addr = self.qdata_addr
 
-        # self.qdata_addr    = 0x800000000000
-        # # self.qnodes_addr = 0x810000000000
-        # self.target_data_addr = 0x820000000000
-        # self.target_nodes_addr = 0x830000000000
-        # self.graph_addr = 0x840000000000
-        # self.degree_addr = 0x850000000000
-        # self.visited_addr = 0x860000000000
-        # self.visited_list_addr = 0x870000000000
-        # self.entries_addr = 0x880000000000
-        # self.acc_visited_cnt_addr = 0x890000000000
-        # self.spad_addr    = 0x1000000000000000
-        # self.base_addr = self.qdata_addr
-
-        # # Additional info
-        # # query-entry distance(initialize), current neighbor idx
-        # self.graph_info_addr = 0x8a0000000000
-        # self.iteration_info_addr = 0x8b0000000000
-        # self.partial_sum_addr = 0x8c0000000000
-        # self.calculated_distance_addr = 0x8d0000000000
-
-        # self.tmp_entries_addr = 0x8e0000000000
-        # self.current_entry_distance_addr = 0x8f0000000000
-        # self.query_iteration_addr = 0x810000000000
-
+        self.smem_size = 0x1000000
         self.sync = 0
         self.kernel_id = 0
         self.kernel_name = 'hnsw_GetEntryPointsKernel'
@@ -235,21 +212,29 @@ class GetEntryPointsKernel1(NdpKernel):
 
         # Calculate store address and store parital sum
         template += f'ld x8, {get_arg_offset(self.partial_sum_addr)}(x1)\n'  # partial_sum_addr
-        template += f'li x9, {configs.stride * configs.ndp_units}\n'
-        template += f'div x12, x2, x9\n'
-        template += f'muli x12, x12, {packet_size}\n'
-        template += f'add x8, x8, x12\n'
+        # template += f'li x9, {configs.stride * configs.ndp_units}\n'
+        # template += f'div x12, x2, x9\n'
+        # template += f'muli x12, x12, {packet_size}\n'
+        # template += f'add x8, x8, x12\n'
 
-        template += f'rem x12, x2, x9\n'
-        template += f'muli x13, NDPID, {configs.stride}\n'
-        template += f'sub x12, x12, x13\n'
-        template += f'li x13, {packet_size / data_size}\n'
-        template += f'div x12, x12, x13\n'
-        template += f'add x8, x8, x12\n'
+        # template += f'rem x12, x2, x9\n'
+        # template += f'muli x13, NDPID, {configs.stride}\n'
+        # template += f'sub x12, x12, x13\n'
+        # template += f'li x13, {packet_size / data_size}\n'
+        # template += f'div x12, x12, x13\n'
+        # template += f'add x8, x8, x12\n'
+        template += f'addi x9, UTHREADID, 0\n'
+        template += f'muli x9, x9, {data_size}\n'
+        template += f'TEST.v.x x9\n'
+        template += f'add x8, x8, x9\n'
+        template += f'sw x30, (x8)\n'
 
-        template += f'muli x20, NDPID, {64 * data_size}\n'  # Because currently storing to DRAM
-        template += f'add x9, x8, x20\n'
-        template += f'sw x30, (x9)\n'
+        # template += f'TEST.v.x UTHREADID\n'
+        # template += f'TEST.v.x x9\n'
+
+        # template += f'muli x20, NDPID, {64 * data_size}\n'  # Because currently storing to DRAM
+        # template += f'add x9, x8, x20\n'
+        # template += f'sw x30, (x9)\n'
 
         template += f'.SKIP0\n'
         # ------------------ SYNC ------------------
@@ -265,9 +250,9 @@ class GetEntryPointsKernel1(NdpKernel):
         # Load partial sums
         template += f'ld x5, {get_arg_offset(self.partial_sum_addr)}(x1)\n' # partial_sum_addr
 
-        template += f'li x6, {64 * data_size}\n'
-        template += f'mul x7, NDPID, x6\n'
-        template += f'add x5, x5, x7\n'
+        # template += f'li x6, {64 * data_size}\n'
+        # template += f'mul x7, NDPID, x6\n'
+        # template += f'add x5, x5, x7\n'
 
         template += f'muli x8, NDPID, {configs.stride}\n'
         template += f'bne x2, x8, .SKIP1\n'  # skip if not micro thread 0
@@ -289,7 +274,9 @@ class GetEntryPointsKernel1(NdpKernel):
 
         # Add 32(packet size) to offset and loop if small than 64 (upper bound)
         template += f'addi x9, x9, {packet_size}\n'
-        template += f'li x13, {data_size * 64}\n' # max upper bound 64 micro thread
+        template += f'TEST.v.x x9\n'
+        template += f'addi x13, UTHREADSZ, 0\n' # max upper bound 64 micro thread
+        template += f'muli x13, x13, {data_size}\n'
         template += f'blt x9, x13, .LOOP1\n'
 
         # Store distancee (Is not manditory)
@@ -330,7 +317,9 @@ class GetEntryPointsKernel1(NdpKernel):
 
         # if distance is smaller, store it to tmp entryid and tmp distance
         template += f'ld x29, {get_arg_offset(self.tmp_entries_addr)}(x1)\n'  # tmp_entries_addr
-        template += f'muli x30, NDPID, {data_size}\n'
+        # template += f'muli x30, NDPID, {data_size}\n'
+        template += f'addi x30, UTHREADID, 0\n'
+        template += f'muli x30, x30, {data_size}\n'
         template += f'add x30, x29, x30\n'
         template += f'sw x28, (x30)\n'  # store tmp entry_id
         template += f'sw x10, (x15)\n'  # store tmp distance
@@ -381,9 +370,8 @@ class GetEntryPointsKernel1(NdpKernel):
                               (self.entries_addr, self.entries),
                               (self.acc_visited_cnt_addr, self.acc_visited_cnt),
                               (self.graph_info_addr, self.graph_info),
-                              (self.partial_sum_addr, self.partial_sums_result),
                               (self.calculated_distance_addr, self.calculated_distances),
-                              (self.tmp_entries_addr, self.tmp_entries),
+                              # (self.tmp_entries_addr, self.tmp_entries),
                               (self.entry_distance_addr, self.current_entry_distance),
                               (self.iter_info_addr, self.query_iteration)])
 

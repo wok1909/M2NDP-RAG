@@ -216,7 +216,8 @@ class SearchGraphKernel0(NdpKernel):
         template += f'add x17, x17, x19\n'
         template += f'sw x16, (x17)\n'
         template += f'.SKIP0\n'
-
+        
+        # ------------------ SYNC ------------------
         template += f'KERNELBODY:\n'
 
         # Reduce distance
@@ -331,6 +332,7 @@ class SearchGraphKernel0(NdpKernel):
 
         # CheckVisited implement
 
+        # ------------------ SYNC ------------------
         # GetCand
         template += f'KERNELBODY:\n'
         

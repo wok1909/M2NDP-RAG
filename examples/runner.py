@@ -25,6 +25,7 @@ from benchmarks.memcpy import *
 from benchmarks.spmv import *
 from benchmarks.tests import *
 from benchmarks.hnsw import *
+from benchmarks.tests import *
 from utils.utils import *
 
 packet_size = 32

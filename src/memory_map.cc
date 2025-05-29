@@ -314,7 +314,11 @@ bool HashMemoryMap::Match(MemoryMap& other2) {
 }
 
 VectorData HashMemoryMap::Load(uint64_t addr) {
-  assert(addr >= m_base && addr < m_base + m_size);
+  // assert(addr >= m_base && addr < m_base + m_size);
+  if (addr < m_base || addr >= m_base + m_size) {
+    fprintf(stderr, "[LOAD FAIL] Addr = 0x%lx, expected range = [0x%lx ~ 0x%lx)\n", addr, m_base, m_base+m_size);
+    abort();
+  }
   if (m_use_synthetic_memory) {
     if (addr >= m_synthetic_base_address &&
         addr < m_synthetic_base_address + m_synthetic_memory_size) {
@@ -333,7 +337,11 @@ VectorData HashMemoryMap::Load(uint64_t addr) {
 }
 
 void HashMemoryMap::Store(uint64_t addr, VectorData data) {
-  assert(addr >= m_base && addr < m_base + m_size);
+  // assert(addr >= m_base && addr < m_base + m_size);
+  if (addr < m_base || addr >= m_base + m_size) {
+    fprintf(stderr, "[STORE FAIL] Addr = 0x%lx, expected range = [0x%lx ~ 0x%lx)\n", addr, m_base, m_base+m_size);
+    abort();
+  }
   if (m_data_map[addr].GetDoubleReg())
     throw std::runtime_error("HashMemoryMap::Double reg Stored!");
   m_data_map[addr] = data;

@@ -15,24 +15,16 @@ global_cand_nodes_addr = 0x8b0000000000
 global_cand_distances_addr = 0x8c0000000000
 
 graph_info_addr = 0x8d0000000000
-update_info_addr = 0x8d1000000000
-finish_info_addr = 0x8d2000000000
-iter_info_addr = 0x8d3000000000
 
-calculated_distance_addr = 0x8d4000000000
 entry_distance_addr = 0x8d5000000000
-queue_size_addr = 0x8d4000000000
+queue_size_addr = 0x8d6000000000
 
-partial_sum_addr = 0x1000000000100000
-local_candidate_addr = 0x1000000000200000
-tmp_entries_addr = 0x8d7000000000
+
 
 address_list = [qdata_addr, target_data_addr, target_nodes_addr, graph_addr, degree_addr,
             visited_addr, visited_list_addr, visited_table_addr, entries_addr, acc_visited_cnt_addr,
             neighbors_addr, global_cand_nodes_addr, global_cand_distances_addr,
-            graph_info_addr, update_info_addr, finish_info_addr, iter_info_addr,
-            calculated_distance_addr, entry_distance_addr, queue_size_addr,
-            partial_sum_addr, local_candidate_addr, tmp_entries_addr]
+            graph_info_addr, entry_distance_addr, queue_size_addr]
 
 def get_address_list():
     return address_list
@@ -103,61 +95,45 @@ def read_graph_file(filename):
             graph[level][src].append((dst, dist))
     return num_query, num_data, num_dims, max_level, max_m, max_m0, enter_point, graph, qdata, data
 
-def read_step1_iter_file(filename):
+def read_step1_file(filename):
+    graph_level = None
     entry_ids = []
-    future_entry_ids = []
-    candidate_ids = []
-    partial_sums  = []
-    calculated_distances  = []
-    current_entry_distances  = []
+    visited = []
+    visited_list = []
+    acc_visited_cnt  = []
 
     with open(filename, 'r') as f:
-        mode = 0
+        mode = -1
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):
+                if line.startswith("# Graph level:"):
+                    graph_level = int(line.split(":")[1].strip())
                 if line.startswith("# Entry id:"):
                     mode = 0
                     continue
-                if line.startswith("# Future entry id:"):
+                elif line.startswith("# Visited:"):
                     mode = 1
                     continue
-                elif line.startswith("# Candidate id:"):
+                elif line.startswith("# Visited list:"):
                     mode = 2
                     continue
-                elif line.startswith("# Entry Partial Sum:"):
+                elif line.startswith("# Accumulate visited count:"):
                     mode = 3
-                    continue
-                elif line.startswith("# Calculated Distance:"):
-                    mode = 4
-                    continue
-                elif line.startswith("# Current Entry Distance:"):
-                    mode = 5
                     continue
                 continue
 
+            value = int(line.split(":")[1].strip())
             if mode == 0:
-                entry_id = int(line.split(":")[1].strip())
-                entry_ids.append(entry_id)
+                entry_ids.append(value)
             elif mode == 1:
-                future_entry_id = int(line.split(":")[1].strip())
-                future_entry_ids.append(future_entry_id)
+                visited.append(value)
             elif mode == 2:
-                candidate_id = int(line.split(":")[1].strip())
-                candidate_ids.append(candidate_id)
+                visited_list.append(value)
             elif mode == 3:
-                partial_sum = list(map(int, line.split(":")[1].strip().split()))
-                if len(partial_sum) < 64:
-                    partial_sum.extend([0] * (64 - len(partial_sum)))
-                partial_sums.extend(partial_sum)
-            elif mode == 4:
-                calculated_distance = int(line.split(":")[1].strip())
-                calculated_distances.append(calculated_distance)
-            elif mode == 5:
-                current_entry_distance = int(line.split(":")[1].strip())
-                current_entry_distances.append(current_entry_distance)
+                acc_visited_cnt.append(value)
 
-    return entry_ids, future_entry_ids, candidate_ids, partial_sums, calculated_distances, current_entry_distances
+    return graph_level, entry_ids, visited, visited_list, acc_visited_cnt
 
 def read_step2_iter_file(filename):
     entry_ids = []
@@ -177,7 +153,7 @@ def read_step2_iter_file(filename):
 
                 mode = 0
                 continue
-            
+
             if mode == 1:
                 entry_id = int(line.split(":")[1].strip())
                 entry_ids.append(entry_id)

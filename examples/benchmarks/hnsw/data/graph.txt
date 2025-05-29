@@ -3,7 +3,7 @@
 # num_dims: 128
 # max_level: 3
 # max_m: 12, max_m0: 24
-# enter_point: 0
+# enter_point: 1920
 
 # Query Data
 # Query ID, Data
