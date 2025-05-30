@@ -30,3 +30,4 @@ examples/tmp
 __pycache__/
 *.pyc
 sssp
+examples/benchmarks/hnsw/data/*.txt
