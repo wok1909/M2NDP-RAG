@@ -312,6 +312,9 @@ void NdpInstruction::ExecuteScalar(Context& context) {
     int64_t rs1 = context.register_map->ReadXreg(src[0], context);
     int64_t rs2 = src[1];
     context.register_map->WriteXreg(dest, rs1 >> rs2, context);
+  } else if (opcode == SEQZ) {
+    int64_t rs1 = context.register_map->ReadXreg(src[0], context);
+    context.register_map->WriteXreg(dest, (rs1 == 0) ? 1 : 0, context);
   } else if (opcode == DIV) {
     int64_t rs1 = context.register_map->ReadXreg(src[0], context);
     int64_t rs2 = context.register_map->ReadXreg(src[1], context);
