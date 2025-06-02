@@ -116,13 +116,17 @@ std::deque<NdpInstruction> RegisterUnit::Convert(
             renamed.src[0] = LookUpV(key, inst.src[0]);
             break;
           case OperandType::V:
+            if (inst.opcode == VID) {
+              renamed.dest = DestRenameV(key, inst);
+              break;
+            }
             if (inst.opcode == VFSQRT) {
               renamed.dest = DestRenameV(key, inst);
               renamed.src[0] = LookUpV(key, inst.src[0]);
               renamed.src[1] = LookUpV(key, inst.src[1]);
               break;
             }
-            if (inst.opcode == VID || inst.opcode == VFEXP) {
+            if (inst.opcode == VFEXP) {
               renamed.src[0] = LookUpV(key, inst.src[0]);
               renamed.dest = DestRenameV(key, inst);
               break;
