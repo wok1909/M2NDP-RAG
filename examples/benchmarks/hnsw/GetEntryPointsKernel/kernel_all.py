@@ -122,7 +122,7 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'.LOOP0\n'
 
         # Skip if query index is out of range
-        template += f'muli x13, x12, {32}\n'
+        template += f'muli x13, x12, {configs.ndp_units}\n'
         template += f'add x13, x13, NDPID\n'
         template += f'bge x13, x4, .SKIP0\n'
 
