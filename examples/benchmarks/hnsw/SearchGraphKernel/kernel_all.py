@@ -1,8 +1,3 @@
-import sys
-sys.path.append("/root/workspace/M2NDP-public/examples")
-
-
-
 from typing import Any
 import numpy as np
 import math
@@ -45,10 +40,10 @@ class SearchGraphKernel(NdpKernel):
 
         # Scratchpad
         self.qdata_sapd_addr = 0x1000000000100000
-        self.pq_size = 0x1000000000200000
-        self.visited_cnt = 0x1000000000300000
-        self.check_exist = 0x1000000000400000
-        self.partial_cand = 0x1000000000500000
+        self.pq_size_addr = 0x1000000000200000
+        self.visited_cnt_addr = 0x1000000000300000
+        self.check_exist_addr = 0x1000000000400000
+        self.partial_cand_addr = 0x1000000000500000
         self.partial_sum_addr = 0x1000000000700000
 
         self.sync = 0
@@ -67,6 +62,13 @@ class SearchGraphKernel(NdpKernel):
         self.data = pad8(np.array(target_data_array, dtype=np.int32))
         self.graph = pad8(np.array(graph, dtype=np.int32))
         self.degree = pad8(np.array(degree, dtype=np.int32))
+
+        # print("Graph: ")
+        # for i in range(len(self.graph) // self.max_m0):
+        #   for j in range(self.max_m0):
+        #     print(f"{self.graph[i * self.max_m0 + j]} ", end='')
+        #   print('')
+        # exit()
 
         # input info
         self.input_file = os.path.join(os.path.dirname(__file__), f'../data/SearchGraph_start.txt')
@@ -102,7 +104,7 @@ class SearchGraphKernel(NdpKernel):
         self.bound = len(qdata_array) * configs.data_size
         self.input_addrs = [self.qdata_addr, self.data_addr, self.entries_addr, self.graph_addr, self.degree_addr, self.nns_addr, self.distances_addr,
                             self.found_cnt_addr, self.visited_table_addr, self.visited_list_addr, self.acc_visited_cnt_addr, self.neighbors_addr, self.global_cand_nodes_addr, self.global_cand_distances_addr, self.graph_info_addr,
-                            self.qdata_sapd_addr, self.pq_size, self.visited_cnt, self.check_exist, self.partial_cand, self.partial_sum_addr]
+                            self.qdata_sapd_addr, self.pq_size_addr, self.visited_cnt_addr, self.check_exist_addr, self.partial_cand_addr, self.partial_sum_addr]
 
 
 
@@ -145,13 +147,11 @@ class SearchGraphKernel(NdpKernel):
 
         # Set pq, cand_nodes, cand_distances
         template += f'ld x16, {self.get_arg_offset(self.neighbors_addr)}(x1)\n'
-        # template += f'ld x17, {self.get_arg_offset(self.global_cand_nodes_addr)}(x1)\n'
-        # template += f'ld x18, {self.get_arg_offset(self.global_cand_distances_addr)}(x1)\n'
+
         template += f'mul x21, x7, x15\n'
-        template += f'muli x21, x21, {data_size}\n'
+        template += f'muli x21, x21, {3 * data_size}\n'
         template += f'add x16, x16, x21\n'  # ef_search_pq
-        # template += f'add x17, x17, x21\n'  # cand_nodes
-        # template += f'add x18, x18, x21\n'  # cand_distances
+
 
         # Set visited_table, visited_list address
         template += f'ld x19, {self.get_arg_offset(self.visited_table_addr)}(x1)\n'
@@ -164,7 +164,7 @@ class SearchGraphKernel(NdpKernel):
         template += f'add x20, x20, x21\n'  # _visited_list
 
         # Initialize size, visited_cnt
-        template += f'ld x21, {self.get_arg_offset(self.pq_size)}(x1)\n'
+        template += f'ld x21, {self.get_arg_offset(self.pq_size_addr)}(x1)\n'
         # template += f'ld x22, {self.get_arg_offset(self.visited_cnt)}(x1)\n'
         # template += f'li x21, 0\n'  # size
         template += f'sw x0, (x21)\n' # size = 0
@@ -183,8 +183,8 @@ class SearchGraphKernel(NdpKernel):
         ### PushNodeToSearchPq Start ###
         template += f'.LOOP20\n'
         # CheckAlreadyExists
-        template += f'ld x3, {self.get_arg_offset(self.check_exist)}(x1)\n'
-        template += f'ld x30, {self.get_arg_offset(self.pq_size)}(x1)\n'
+        template += f'ld x3, {self.get_arg_offset(self.check_exist_addr)}(x1)\n'
+        template += f'ld x30, {self.get_arg_offset(self.pq_size_addr)}(x1)\n'
         template += f'lw x21, (x30)\n'  # size
         template += f'muli x25, UTHREADID, {data_size}\n'
         template += f'add x18, x3, x25\n'
@@ -223,7 +223,7 @@ class SearchGraphKernel(NdpKernel):
         # Store exists to spad and load
         template += f'sw x25, (x3)\n'
         template += f'.SKIP2\n'
-        
+
 
         template += f'KERNELBODY:\n'  # KERNELBODY2
         template += f'lw x18, (x3)\n' # exists
@@ -275,10 +275,10 @@ class SearchGraphKernel(NdpKernel):
 
         # Push to pq
         # size: x21, ef_search: x7
-        template += f'ld x30, {self.get_arg_offset(self.pq_size)}(x1)\n'
+        template += f'ld x30, {self.get_arg_offset(self.pq_size_addr)}(x1)\n'
         template += f'lw x21, (x30)\n'
         template += f'blt x21, x7, .SKIP4\n'
-        
+
         template += f'lw x28, (x16)\n'  # pq[0].distance
         template += f'ble x28, x25, .SKIP3\n'
 
@@ -341,14 +341,10 @@ class SearchGraphKernel(NdpKernel):
         template += f'sw x29, (x13)\n'
         template += f'sw x30, 4(x13)\n'
         template += f'sw x18, 8(x13)\n'
-        # template += f'TEST.v.x x10\n'
-        # template += f'TEST.v.x x30\n'
 
         template += f'.SKIP4\n'
         # PqPush()
         template += f'addi x3, x21, 0\n' # idx = *size
-        # template += f'TEST.v.x x25\n'
-        # template += f'TEST.v.x x3\n'
         template += f'.LOOP5\n'
         template += f'ble x3, x0, .SKIP7\n'
         template += f'addi x10, x3, 1\n'
@@ -361,7 +357,7 @@ class SearchGraphKernel(NdpKernel):
         template += f'bge x28, x25, .SKIP7\n'
         template += f'muli x29, x3, {3 * data_size}\n'
         template += f'add x29, x16, x29\n'  # pq[idx]
-        
+
         template += f'lw x30, 4(x13)\n'
         template += f'lw x18, 8(x13)\n'
         template += f'addi x3, x10, 0\n'  # idx = nidx
@@ -376,13 +372,11 @@ class SearchGraphKernel(NdpKernel):
         template += f'sw x25, (x10)\n'
         template += f'sw x24, 4(x10)\n'
         template += f'sw x0, 8(x10)\n'
-        # template += f'TEST.v.x x3\n'
-        # template += f'TEST.v.x x24\n'
         template += f'addi x21, x21, 1\n'
-        template += f'ld x3, {self.get_arg_offset(self.pq_size)}(x1)\n'
+        template += f'ld x3, {self.get_arg_offset(self.pq_size_addr)}(x1)\n'
         template += f'sw x21, (x3)\n'
 
-        # # FOR DEBUG
+        # # # FOR DEBUG
         # template += f'TEST.v.x x0\n'
         # template += f'TEST.v.x x0\n'
         # template += f'TEST.v.x x0\n'
@@ -407,9 +401,9 @@ class SearchGraphKernel(NdpKernel):
 
         ### PushNodeToSearchPq End ###
 
-        
+
         template += f'KERNELBODY:\n'  # KERNELBODY4
-        
+
         ### CheckVisited Start ###
         template += f'.LOOP21\n'
         template += f'li x23, 0\n'  # ret = false
@@ -418,7 +412,7 @@ class SearchGraphKernel(NdpKernel):
         template += f'muli x29, x25, {data_size}\n'
         template += f'add x29, x19, x29\n'
         template += f'lw x30, (x29)\n'  # visited_table[idx]
-        
+
         template += f'KERNELBODY:\n'  # KERNELBODY5
         template += f'beq x30, x24, .SKIP9\n' # visited_table[idx] == target
         template += f'bgt UTHREADID, x0, .SKIP8\n'
@@ -442,8 +436,8 @@ class SearchGraphKernel(NdpKernel):
         template += f'KERNELBODY:\n'  # KERNELBODY6
         ### GetCand Start ###
         template += f'.LOOP22\n'
-        template += f'ld x29, {self.get_arg_offset(self.partial_cand)}(x1)\n'
-        template += f'ld x30, {self.get_arg_offset(self.pq_size)}(x1)\n'
+        template += f'ld x29, {self.get_arg_offset(self.partial_cand_addr)}(x1)\n'
+        template += f'ld x30, {self.get_arg_offset(self.pq_size_addr)}(x1)\n'
         template += f'lw x21, (x30)\n'  # size
         template += f'li x23, {INFINITY}\n' # dist
         template += f'li x25, -1\n' # cand
@@ -466,7 +460,7 @@ class SearchGraphKernel(NdpKernel):
         template += f'muli x27, UTHREADID, {data_size}\n'
         template += f'add x30, x29, x27\n'
         template += f'sw x25, (x30)\n'
-        
+
         template += f'KERNELBODY:\n'  # KERNELBODY7
         # Global cand
         template += f'bgt UTHREADID, x0, .SKIP13\n'
@@ -519,7 +513,6 @@ class SearchGraphKernel(NdpKernel):
         template += f'lw x25, (x29)\n' # idx
         template += f'.LOOP8\n'
         template += f'blt x25, x0, .SKIP18\n'
-        template += f'TEST.v.x x25\n'
         template += f'muli x23, x25, {3 * data_size}\n'
         template += f'add x23, x16, x23\n'
         template += f'bgt UTHREADID, x0, .SKIP16\n'
@@ -527,14 +520,13 @@ class SearchGraphKernel(NdpKernel):
         template += f'sw x26, 8(x23)\n' # ef_serach_pq[idx].checked = true
         template += f'.SKIP16\n'
         template += f'lw x26, 4(x23)\n' # entry = ef_search_pq[idx].nodeid
-        template += f'TEST.v.x x26\n'
 
         template += f'KERNELBODY:\n'  # KERNELBODY9
         template += f'ld x23, {self.get_arg_offset(self.degree_addr)}(x1)\n'
         template += f'muli x27, x26, {data_size}\n'
         template += f'add x27, x23, x27\n'
         template += f'lw x12, (x27)\n'  # deg[entry_id]
-        
+
         template += f'ld x17, {self.get_arg_offset(self.graph_addr)}(x1)\n'
         template += f'mul x26, x6, x26\n'  # j = max_m * entry
         template += f'add x27, x26, x12\n'  # max_m * entry + degree[entry]
@@ -549,21 +541,17 @@ class SearchGraphKernel(NdpKernel):
         template += f'.SKIP21\n'
         template += f'addi x26, x26, 1\n' # j++
         template += f'bnez x23, .LOOP9\n' # CheckVisited() != false
-        
+
         template += f'KERNELBODY:\n'  # KERNELBODY10
-        template += f'TEST.v.x x24\n'
         template += f'j .LOOP20\n'  # PushNodeToSearchPq()
         template += f'.SKIP20\n'
 
         template += f'KERNELBODY:\n'  # KERNELBODY11
 
         template += f'j .LOOP9\n'
-        # go back to .LOOP9
 
         template += f'.SKIP17\n'
-        
-        # 필요한  reg: x26, x27, x31, x17
-        # 필요없는 reg: x23, x25, x28, x29, x30, x10, x13, , x18
+
         template += f'j .LOOP22\n'  # GetCand()
         template += f'.SKIP22\n'
         template += f'lw x25, (x29)\n' # idx
@@ -572,27 +560,167 @@ class SearchGraphKernel(NdpKernel):
 
         template += f'.SKIP18\n'
 
+        # Store visited_cnt to spad
+        template += f'ld x17, {self.get_arg_offset(self.visited_cnt_addr)}(x1)\n'
+        template += f'bgt UTHREADID, x0, .SKIP29\n'
+        template += f'sw x22, (x17)\n'
+        template += f'.SKIP29\n'
+
         template += f'KERNELBODY:\n'  # KERNELBODY12
+        # Set visited_table (x19) with visited_list (x20), visited_cnt (x22)
+        template += f'lw x22, (x17)\n'  # visited_cnt
+        template += f'addi x26, UTHREADID, 0\n' # idx
+        template += f'li x23, -1\n'
+        template += f'.LOOP26\n'
+        template += f'bge x26, x22, .SKIP26\n'
+        template += f'muli x27, x26, {data_size}\n'
+        template += f'add x27, x20, x27\n'
+        template += f'lw x28, (x27)\n'  # _visited_list[j]
+        template += f'muli x27, x28, {data_size}\n'
+        template += f'add x28, x19, x27\n'
+        template += f'sw x23, (x28)\n'  # _visited_table[_visited_list[j]] = -1;
+        template += f'add x26, x26, UTHREADSZ\n'
+        template += f'j .LOOP26\n'
+        template += f'.SKIP26\n'
 
-        # acc_visited_cnt[blockIdx.x] += visited_cnt;
+        template += f'KERNELBODY:\n'  # KERNELBODY13
 
-        # for (int j = threadIdx.x; j < visited_cnt; j += blockDim.x) {
-        #   _visited_table[_visited_list[j]] = -1;
-        # }
-
-        # Get sorted neighbors
+        # Add acc_visited_cnt & get sorted neighbors
         template += f'bgt UTHREADID, x0, .SKIP10\n'
-        template += f'ld x30, {self.get_arg_offset(self.pq_size)}(x1)\n'
+        template += f'ld x19, {self.get_arg_offset(self.acc_visited_cnt_addr)}(x1)\n'
+        template += f'muli x26, x15, {data_size}\n'
+        template += f'add x26, x19, x26\n'
+        template += f'lw x27, (x26)\n'  # acc_visited_cnt[blickIdx.x]
+        template += f'add x27, x27, x22\n'  # + visited_cnt
+        template += f'sw x27, (x26)\n'
+
+        template += f'ld x17, {self.get_arg_offset(self.global_cand_nodes_addr)}(x1)\n'
+        template += f'ld x31, {self.get_arg_offset(self.global_cand_distances_addr)}(x1)\n'
+        template += f'ld x30, {self.get_arg_offset(self.pq_size_addr)}(x1)\n'
+        template += f'mul x21, x7, x15\n'
+        template += f'muli x21, x21, {data_size}\n'
+        template += f'add x17, x17, x21\n'  # cand_nodes
+        template += f'add x31, x31, x21\n'  # cand_distances
         template += f'lw x21, (x30)\n'  # size
 
-        template += f'TEST.v.x x21\n'
+        template += f'beqz x21, .SKIP10\n'
 
-        
-        template += f'KERNELBODY:\n'  # KERNELBODY13
+        template += f'.LOOP23\n'
+        # PqPop()
+        # if (*size == 0) return;
+        template += f'blez x21, .SKIP23\n'
+
+        template += f'lw x26, (x16)\n'  # nodeid
+        template += f'lw x27, 4(x16)\n' # distance
+
+        # (*size)--
+        template += f'addi x21, x21, -1\n'
+
+        template += f'muli x22, x21, {data_size}\n'
+        template += f'add x24, x31, x22\n'
+        template += f'sw x26, (x24)\n'
+        template += f'add x20, x17, x22\n'
+        template += f'sw x27, (x20)\n'
+
+        # if (*size == 0) return;
+        template += f'beqz x21, .SKIP23\n'
+        # cuda_scalar tail_dist = pq[*size].distance;
+        template += f'muli x3, x21, {3 * data_size}\n'
+        template += f'add x28, x16, x3\n'
+        template += f'lw x3, (x28)\n'  # pq[*size].distance
+        # int p = 0, r = 1;
+        template += f'li x10, 0\n'  # p = 0
+        template += f'li x13, 1\n'  # r = 1
+        # while (r < *size) {
+        template += f'.LOOP24\n'
+        template += f'bge x13, x21, .SKIP24\n'
+        # if (r < (*size) - 1 and gt(pq[r + 1].distance, pq[r].distance))
+        template += f'addi x28, x21, -1\n'  # (*size) - 1
+        template += f'bge x13, x28, .SKIP25\n'
+        template += f'muli x28, x13, {3 * data_size}\n'
+        template += f'add x28, x16, x28\n'
+        template += f'lw x29, (x28)\n'  # pq[r].distance
+        template += f'lw x30, 12(x28)\n' # pq[r+1].distance
+        template += f'bge x29, x30, .SKIP25\n'
+        # r++;
+        template += f'addi x13, x13, 1\n'
+        template += f'.SKIP25\n'
+        # if (ge(tail_dist, pq[r].distance)) break;
+        template += f'muli x28, x13, {3 * data_size}\n'
+        template += f'add x28, x16, x28\n'
+        template += f'lw x29, (x28)\n'  # pq[r].distance
+        template += f'bge x3, x29, .SKIP24\n'
+
+        # pq[p] = pq[r];
+        template += f'muli x30, x10, {3 * data_size}\n'
+        template += f'add x30, x16, x30\n'
+        template += f'sw x29, (x30)\n'  # pq[p].distance = pq[r].distance
+        template += f'lw x29, 4(x28)\n' # pq[r].nodeid
+        template += f'lw x18, 8(x28)\n' # pq[r].check
+        template += f'addi x10, x13, 0\n' # p = r
+        template += f'muli x13, x10, 2\n' # r = p * 2
+        template += f'addi x13, x13, 1\n' # r = p * 2 + 1
+        template += f'sw x29, 4(x30)\n' # pq[p].nodeid = pq[r].nodeid
+        template += f'sw x18, 8(x30)\n' # pq[p].check = pq[r].check
+        template += f'j .LOOP24\n'
+        template += f'.SKIP24\n'
+        # pq[p] = pq[*size];
+        template += f'muli x3, x21, {3 * data_size}\n'
+        template += f'add x28, x16, x3\n'
+        template += f'lw x29, (x28)\n'  # pq[size].distance
+        template += f'lw x30, 4(x28)\n' # pq[size].nodeid
+        template += f'lw x18, 8(x28)\n' # pq[size].check
+        template += f'muli x13, x10, {3 * data_size}\n'
+        template += f'add x13, x16, x13\n'  # pq[p]
+        template += f'sw x29, (x13)\n'
+        template += f'sw x30, 4(x13)\n'
+        template += f'sw x18, 8(x13)\n'
+
+        template += f'j .LOOP23\n'
+        template += f'.SKIP23\n'
+
+        # Store found_cnt
+        template += f'ld x26, {self.get_arg_offset(self.found_cnt_addr)}(x1)\n'
+        template += f'ld x30, {self.get_arg_offset(self.pq_size_addr)}(x1)\n'
+        template += f'ld x3, {self.get_arg_offset(self.graph_info_addr)}(x1)\n'
+        template += f'muli x27, x15, {data_size}\n'
+        template += f'add x26, x26, x27\n'
+        template += f'lw x21, (x30)\n'  # size
+        template += f'lw x22, 24(x3)\n' # topk
+        template += f'ble x21, x22, .SKIP27\n'
+        template += f'addi x21, x22, 0\n'
+        template += f'.SKIP27\n'
+        template += f'sw x21, (x26)\n'
+
+        template += f'ld x26, {self.get_arg_offset(self.nns_addr)}(x1)\n'
+        template += f'ld x27, {self.get_arg_offset(self.distances_addr)}(x1)\n'
+        template += f'mul x28, x15, x22\n'
+        template += f'muli x28, x28, {data_size}\n'
+        template += f'add x26, x26, x28\n'
+        template += f'add x27, x27, x28\n'
+
+        template += f'li x29, 0\n'  # counter
+        template += f'.LOOP25\n'
+        template += f'bge x29, x21, .SKIP28\n'
+        template += f'muli x30, x29, {data_size}\n'
+        template += f'add x23, x17, x30\n'
+        template += f'lw x24, (x23)\n' # cand_nodes
+        template += f'add x25, x31, x30\n'
+        template += f'lw x19, (x25)\n'  # cand_distances
+
+        template += f'add x18, x26, x30\n'
+        template += f'sw x24, (x18)\n'
+        template += f'add x13, x27, x30\n'
+        template += f'sw x19, (x13)\n'
+
+        template += f'addi x29, x29, 1\n'
+        template += f'j .LOOP25\n'
+        template += f'.SKIP28\n'
+
+        template += f'KERNELBODY:\n'  # KERNELBODY14
         ############### END #####################
         template += f'.SKIP10\n'
         template += f'addi x14, x14, 1\n'
-        template += f'TEST.v.x x14\n'
         template += f'j .LOOP0\n'
 
         template += f'.SKIP0\n'
