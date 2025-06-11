@@ -109,7 +109,7 @@ def read_step1_file(filename):
             if not line or line.startswith("#"):
                 if line.startswith("# Graph level:"):
                     graph_level = int(line.split(":")[1].strip())
-                if line.startswith("# Entry id:"):
+                elif line.startswith("# Entry id:"):
                     mode = 0
                     continue
                 elif line.startswith("# Visited:"):
@@ -135,32 +135,92 @@ def read_step1_file(filename):
 
     return graph_level, entry_ids, visited, visited_list, acc_visited_cnt
 
-def read_step2_iter_file(filename):
-    entry_ids = []
+def read_step2_file(filename):
+    topk = None
+    visited_table_size = None
+    visited_list_size = None
+    ef_search = None
+    entries = []
+    nns = []
+    distances = []
+    found_cnt = []
+    visited_table = [] 
+    visited_list = []
+    acc_visited_cnt = []
     neighbors = []
+    global_cand_nodes = []
+    global_cand_distances = []
 
     with open(filename, 'r') as f:
-        mode = 0
+        mode = -1
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):
-                if line.startswith("# Entry id:"):
+                if line.startswith("# TopK:"):
+                    topk = int(line.split(":")[1].strip())
+                elif line.startswith("# Visited table size:"):
+                    visited_table_size = int(line.split(":")[1].strip())
+                elif line.startswith("# Visited list size:"):
+                    visited_list_size = int(line.split(":")[1].strip())
+                elif line.startswith("# Epsilon for search:"):
+                    ef_search = int(line.split(":")[1].strip())
+                elif line.startswith("# Entries:"):
+                    mode = 0
+                    continue
+                elif line.startswith("# NNS:"):
                     mode = 1
                     continue
-                elif line.startswith("# Neighbors (Distance, NodeId, Checked):"):
+                elif line.startswith("# Distances:"):
                     mode = 2
                     continue
-
-                mode = 0
+                elif line.startswith("# Found count:"):
+                    mode = 3
+                    continue
+                elif line.startswith("# Visited Table:"):
+                    mode = 4
+                    continue
+                elif line.startswith("# Visited List:"):
+                    mode = 5
+                    continue
+                elif line.startswith("# Accumulate Visited Count:"):
+                    mode = 6
+                    continue
+                elif line.startswith("# Neighbors (Distance, NodeId, Checked):"):
+                    mode = 7
+                    continue
+                elif line.startswith("# Candidate Nodes:"):
+                    mode = 8
+                    continue
+                elif line.startswith("# Candidate Distances:"):
+                    mode = 9
+                    continue
                 continue
-
-            if mode == 1:
-                entry_id = int(line.split(":")[1].strip())
-                entry_ids.append(entry_id)
-            elif mode == 2:
+            
+            if mode != 7:
+                value = int(line.split(":")[1].strip())
+                if mode == 0:
+                    entries.append(value)
+                elif mode == 1:
+                    nns.append(value)
+                elif mode == 2:
+                    distances.append(value)
+                elif mode == 3:
+                    found_cnt.append(value)
+                elif mode == 4:
+                    visited_table.append(value)
+                elif mode == 5:
+                    visited_list.append(value)
+                elif mode == 6:
+                    acc_visited_cnt.append(value)
+                elif mode == 8:
+                    global_cand_nodes.append(value)
+                elif mode == 9:
+                    global_cand_distances.append(value)
+                
+            elif mode == 7:
                 neighbor_info = line.split(":")[1].strip()
                 distance = int(neighbor_info.split(',')[0].strip())
                 nodeid = int(neighbor_info.split(',')[1].strip())
                 checked = int(neighbor_info.split(',')[2].strip())
                 neighbors.extend([distance, nodeid, checked])
-    return entry_ids, neighbors
+    return topk, visited_table_size, visited_list_size, ef_search, entries, nns, distances, found_cnt, visited_table, visited_list, acc_visited_cnt, neighbors, global_cand_nodes, global_cand_distances

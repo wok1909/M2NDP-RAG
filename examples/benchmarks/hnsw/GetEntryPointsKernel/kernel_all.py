@@ -11,8 +11,10 @@ from utils.utils import NdpKernel, make_memory_map, pad8, make_input_files
 import configs
 from ..hnsw_utils import *
 
+DATASET="30_siftsmall-128-euclidean_q1"
+
 DEGUG = False
-LEVEL = 3
+LEVEL = 1
 DIST_TYPE = 0
 VISITED_LIST_SIZE = 8192
 
@@ -53,7 +55,7 @@ class GetEntryPointsKernel(NdpKernel):
         self.smem_size = 0x1df00
 
         # graph info
-        self.graph_file = os.path.join(os.path.dirname(__file__), f'../data/graph.txt')
+        self.graph_file = os.path.join(os.path.dirname(__file__), f'../data/{DATASET}/graph.txt')
         self.num_query, self.num_data, self.num_dims, self.max_level, self.max_m, self.max_m0, self.enter_point, graphs, queries, data = read_graph_file(self.graph_file)
         qdata_array = self.preprocess_with_data(queries, True)
         target_data_array = self.preprocess_with_data(data)
@@ -67,7 +69,7 @@ class GetEntryPointsKernel(NdpKernel):
         self.graph_info = pad8(np.array([self.num_query, len(target_nodes), self.num_dims, self.max_level, self.max_m, DIST_TYPE, VISITED_LIST_SIZE], dtype=np.int32))
 
         # input info
-        self.input_file = os.path.join(os.path.dirname(__file__), f'../data/GetEntryPoints_{LEVEL}_start.txt')
+        self.input_file = os.path.join(os.path.dirname(__file__), f'../data/{DATASET}/GetEntryPoints_{LEVEL}_start.txt')
         graph_level, entries, visited, visited_list, acc_visited_cnt = read_step1_file(self.input_file)
         assert(graph_level == LEVEL)
 
@@ -77,7 +79,7 @@ class GetEntryPointsKernel(NdpKernel):
         self.input_acc_visited_cnt = pad8(np.array(acc_visited_cnt, dtype=np.int32))
 
         # output info
-        self.output_file = os.path.join(os.path.dirname(__file__), f'../data/GetEntryPoints_{LEVEL}_finish.txt')
+        self.output_file = os.path.join(os.path.dirname(__file__), f'../data/{DATASET}/GetEntryPoints_{LEVEL}_finish.txt')
         graph_level, entries, visited, visited_list, acc_visited_cnt = read_step1_file(self.output_file)
         assert(graph_level == LEVEL)
 
@@ -199,7 +201,6 @@ class GetEntryPointsKernel(NdpKernel):
         # Global distance calculation
         template += f'li x20, 0\n'  # accumulator
         template += f'addi x21, UTHREADSZ, 0\n'  # counter
-        template += f'TEST.v.x UTHREADSZ\n'
         template += f'vid.v v2\n' # v2 = [0, 1, 2, 3, 4, 5, 6, 7]
         template += f'addi x18, x19, 0\n'
         template += f'.LOOP1\n'
@@ -366,7 +367,6 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'KERNELBODY:\n' # KERNELBODY6
         # branch to .LOOP3 if entry has more neighbors
         template += self.load_registers(free_regs=[18, 21], scalar_regs=[23, 24])
-
         template += f'blt x23, x24, .LOOP3\n'
 
         template += f'.SKIP6\n'
