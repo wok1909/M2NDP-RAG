@@ -84,12 +84,13 @@ NdpUnit::NdpUnit(M2NDPConfig* config, MemoryMap* memory_map, NdpStats* stats,
                                       &(m_inst_column_q[sub_core_id]), &(m_to_icache[sub_core_id]), &(m_from_icache[sub_core_id]),
                                       &(m_to_ldst_unit[sub_core_id]), &(m_to_spad_unit[sub_core_id]),
                                       &(m_to_v_ldst_unit[sub_core_id]), &(m_to_v_spad_unit[sub_core_id]),
-                                      &m_finished_contexts);
+                                      &m_finished_contexts, &m_finished_uthreads);
 
   }
 
   m_ldst_unit = new LDSTUnit(m_config, m_id,
                             &m_finished_contexts,
+                            &m_finished_uthreads,
                             &m_to_mem, &m_from_mem,
                             &m_to_reg,
                             m_dtlb, m_stats);
@@ -158,33 +159,37 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
     info.kernel_id = kinfo->kernel_id;
     info.launch_id = kinfo->launch_id;
     info.id = req_id++;
+    info.ndp_req_id = 0;
     //only use 1 sub-core in functional only mode
     m_sub_core_units[0]->ExecuteInitializer(scratchpad_map, &info);
 
     /* KernelBody */
-    uint32_t count = 0;
-    int uthread_id = 0;
-    while (count * PACKET_SIZE < kinfo->size) {
-      uint64_t target_addr = kinfo->base_addr + count * PACKET_SIZE;
-      count++;
-      int addr_ndp_id = m_config->get_matched_unit_id(target_addr);
-      if (addr_ndp_id != m_id) continue;
-      uint64_t offset = target_addr - kinfo->base_addr;
-      info.clear();
-      info.addr = target_addr;  // base_addr, in previous
-      info.offset = offset;
-      m_sub_core_units[0]->InitializeRegister(&info, uthread_id++);
-    }
+    // uint32_t count = 0;
+    // int ndp_req_id = 0;
+    // while (count * PACKET_SIZE < kinfo->size) {
+    //   uint64_t target_addr = kinfo->base_addr + count * PACKET_SIZE;
+    //   count++;
+    //   int addr_ndp_id = m_config->get_matched_unit_id(target_addr);
+    //   if (addr_ndp_id != m_id) continue;
+    //   uint64_t offset = target_addr - kinfo->base_addr;
+    //   info.clear();
+    //   info.addr = target_addr;  // base_addr, in previous
+    //   info.offset = offset;
+    //   info.ndp_req_id = ndp_req_id++;
+    //   m_sub_core_units[0]->InitializeRegister(&info, ndp_req_id-1);
+    // }
+    bool is_first = true;
+    int ndp_req_id = 0;
     while (k_id < ndp_kernel->num_kernel_bodies) {
       uint32_t count = 0;
-      uthread_id = 0;
+      ndp_req_id = 0;
       while (count * PACKET_SIZE < kinfo->size) {
         uint64_t target_addr = kinfo->base_addr + count * PACKET_SIZE;
         count++;
         int addr_ndp_id = m_config->get_matched_unit_id(target_addr);
         if (addr_ndp_id != m_id) continue;
-        if (m_uthread_sync_idx.at(uthread_id) > k_id) {
-          uthread_id++;
+        if (m_uthread_sync_idx.at(ndp_req_id) > k_id) {
+          ndp_req_id++;
           continue;
         }
         uint64_t offset = target_addr - kinfo->base_addr;
@@ -194,12 +199,14 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
         info.launch_id = kinfo->launch_id;
         info.kernel_body_id = k_id;
         info.id = req_id++;
-        m_uthread_sync_idx.at(uthread_id) = m_sub_core_units[0]->ExecuteKernelBody(scratchpad_map, &info, k_id, uthread_sz, uthread_id);
+        info.ndp_req_id = ndp_req_id++;
+        info.first_req = is_first;
+        m_uthread_sync_idx.at(ndp_req_id-1) = m_sub_core_units[0]->ExecuteKernelBody(scratchpad_map, &info, k_id, uthread_sz, ndp_req_id-1);
 
-        if (m_uthread_sync_idx.at(uthread_id) == k_id)
-          m_uthread_sync_idx.at(uthread_id)++;
-        uthread_id++;
+        if (m_uthread_sync_idx.at(ndp_req_id-1) == k_id)
+          m_uthread_sync_idx.at(ndp_req_id-1)++;
       }
+      is_first = false;
       int next_body = k_id + 1;
       if (m_uthread_sync_idx.size()) {
         next_body = m_uthread_sync_idx.at(0);
@@ -218,6 +225,8 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
       if (deadlock_detect > 1000)
         fprintf(stderr, "[ERROR] SYNCRONIZE ERROR (INFINIT LOOP DETECTED)\n");
     }
+    for (int i=0; i<ndp_req_id; i++)
+      m_sub_core_units[0]->free_rf(i);
 
     /* Finalizer  */
     info.clear();
@@ -226,6 +235,7 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
     info.kernel_id = kinfo->kernel_id;
     info.launch_id = kinfo->launch_id;
     info.id = req_id++;
+    info.ndp_req_id = 0;
     m_sub_core_units[0]->ExecuteFinalizer(scratchpad_map, &info);
 
     delete scratchpad_map;
@@ -242,6 +252,7 @@ void NdpUnit::Run(int id, NdpKernel* ndp_kernel, std::string line) {
 
 #ifdef TIMING_SIMULATION
 void NdpUnit::cycle() {
+  handle_finished_uthreads();
   handle_finished_context();
   rf_writeback();
   from_mem_handle();
@@ -286,9 +297,17 @@ void NdpUnit::handle_finished_context() {
       m_uthread_generator->increase_count(context.request_info->launch_id);
     } else {
       m_uthread_generator->increase_count(context.request_info->launch_id);
-      m_sub_core_units[sub_core_id]->free_rf(context.request_info->id);
+      // m_sub_core_units[sub_core_id]->free_rf(context.request_info->id);
       m_sub_core_units[sub_core_id]->free_inst_column(context.inst_col_id);
     }
+  }
+}
+
+void NdpUnit::handle_finished_uthreads() {
+  while (check_finished_uthreads()) {
+    Context context = pop_finished_uthreads();
+    int sub_core_id = context.sub_core_id;
+    m_sub_core_units[sub_core_id]->free_rf(context.uthread_id);
   }
 }
 
@@ -581,6 +600,10 @@ void NdpUnit::register_ndp_kernel(NdpKernel* ndp_kernel) {
 void NdpUnit::launch_ndp_kernel(KernelLaunchInfo info) {
   m_uthread_generator->launch(info);
   m_ldst_unit->set_l1d_size(m_uthread_generator->get_allocated_spad_size());
+  // Initialize
+  uint32_t uthread_sz = m_config->get_uthread_size(m_id, info.size);
+  for (int i = 0; i < m_num_sub_core; i++)
+    m_sub_core_units[i]->SubCoreInitialize(m_uthread_generator->get_num_kernel_bodies(info.kernel_id), uthread_sz);
 }
 
 NdpStats NdpUnit::get_stats() {

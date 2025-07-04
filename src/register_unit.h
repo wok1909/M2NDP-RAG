@@ -41,6 +41,12 @@ struct RegisterStats {
 };
 
 struct RegisterData {
+  std::vector<int64_t> xreg_table;
+  std::vector<float> freg_table;
+  std::vector<VectorData> vreg_table;
+};
+
+struct MappingState {
   RegisterMap xreg_mapping;
   RegisterMap freg_mapping;
   RegisterMap vreg_mapping;
@@ -48,13 +54,6 @@ struct RegisterData {
   std::deque<int> free_xregs;
   std::deque<int> free_fregs;
   std::deque<int> free_vregs;
-
-  std::vector<int64_t> xreg_table;
-  std::vector<float> freg_table;
-  std::vector<VectorData> vreg_table;
-
-  std::deque<InstColumn*> after_rename;
-  robin_hood::unordered_set<int> not_ready;
 };
 
 class RegisterUnit {
@@ -71,8 +70,10 @@ class RegisterUnit {
   void SetNotReady(int reg);
   void SetReady(int reg);
 
-  void LoadRegisters(int uthread_id, MemoryMap* scratchpad_map);
-  void StoreRegisters(int uthread_id, MemoryMap* scratchpad_map);
+  void LoadRegisters(int uthread_id);
+  void StoreRegisters(int uthread_id);
+  void LoadMappingState(int uthread_id);
+  void StoreMappingState(int uthread_id);
   void InitializeRegister(int uthread_id, RequestInfo* req);
 
   /*Renaming*/
@@ -134,6 +135,7 @@ class RegisterUnit {
   robin_hood::unordered_set<int> m_not_ready;
 
   std::vector<RegisterData> m_register_data;
+  std::vector<MappingState> m_mapping_state;
 
   bool CheckSpecialReg(int reg);
   // int GetVregIndex(int reg);

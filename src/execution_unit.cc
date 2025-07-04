@@ -5,7 +5,7 @@
 namespace NDPSim {
 
 ExecutionUnit::ExecutionUnit(M2NDPConfig *config, int ndp_id, int sub_core_id, RegisterUnit *register_unit,
-                std::queue<Context> *finished_contexts,
+                std::queue<Context> *finished_contexts, std::queue<Context> *finished_uthreads,
                 fifo_pipeline<std::pair<NdpInstruction, Context>> *to_ldst_unit,
                 fifo_pipeline<std::pair<NdpInstruction, Context>> *to_spad_unit,
                 fifo_pipeline<std::pair<NdpInstruction, Context>> *to_v_ldst_unit,
@@ -17,6 +17,7 @@ ExecutionUnit::ExecutionUnit(M2NDPConfig *config, int ndp_id, int sub_core_id, R
       m_config(config),
       m_register_unit(register_unit),
       m_finished_contexts(finished_contexts),
+      m_finished_uthreads(finished_uthreads),
       m_to_ldst_unit(to_ldst_unit),
       m_to_spad_unit(to_spad_unit),
       m_to_v_ldst_unit(to_v_ldst_unit),
@@ -69,8 +70,21 @@ void ExecutionUnit::cycle() {
     if (inst.CheckBranchOp()) {
       context.csr->block = false;
       int branch_target = inst.IsBranch();
-      if (branch_target != -1)
-        context.csr->pc = context.loop_map->at(branch_target);
+      if (branch_target != -1) {
+        bool found = false;
+        for (int kb=0; kb < context.loop_map->size(); kb++) {
+          auto it = context.loop_map->at(kb).find(branch_target);
+          if (it != context.loop_map->at(kb).end()) {
+            context.csr->pc = it->second;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          fprintf(stderr, "[Error] Cannot found branch target..\n");
+          assert(0);
+        }
+      }
       else
         context.csr->pc++;
 
@@ -78,6 +92,8 @@ void ExecutionUnit::cycle() {
     }
     if (context.last_inst) {
       m_finished_contexts->push(context);
+      if (context.request_info->last_kb)
+        m_finished_uthreads->push(context);
     }
     i_unit.pop();
   }
@@ -109,6 +125,8 @@ void ExecutionUnit::process_default_execution_units(
     }
     if (context.last_inst) {
       m_finished_contexts->push(context);
+      if (context.request_info->last_kb)
+        m_finished_uthreads->push(context);
     }
     unit.pop();
   }
@@ -151,6 +169,8 @@ Status ExecutionUnit::issue(NdpInstruction &inst, Context context) {
     context.exit = true;
     context.csr->pc++;
     m_finished_contexts->push(context);
+    if (context.request_info->last_kb)
+        m_finished_uthreads->push(context);
     return ISSUE_SUCCESS;
   }
   AluOpType alu_op_type = inst.GetAluOpType();
@@ -223,8 +243,12 @@ Status ExecutionUnit::issue(NdpInstruction &inst, Context context) {
     }
   }
 
-  if (m_config->is_functional_sim() || spad_op || (alu_op_type != ADDRESS_OP))
+  if (m_config->is_functional_sim() || spad_op || (alu_op_type != ADDRESS_OP)) {
+    context.register_map->LoadRegisters(context.request_info->ndp_req_id);
     inst.Execute(context);
+    context.register_map->StoreRegisters(context.request_info->ndp_req_id);
+  }
+    
 
   for (auto &unit : get_unit(inst)) {
     if (!unit.full()) {

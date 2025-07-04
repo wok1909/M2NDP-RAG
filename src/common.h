@@ -66,10 +66,13 @@ struct RequestInfo {
   uint64_t launch_id;
   uint32_t kernel_id;
   uint32_t kernel_body_id;
+  uint32_t ndp_req_id;
   uint64_t addr;
   uint64_t size;
   uint64_t offset;
   MemoryMap* scratchpad_map;
+  bool first_req;
+  bool last_kb;
 
   void clear() {
     type = static_cast<RequestType>(0);
@@ -77,10 +80,13 @@ struct RequestInfo {
     launch_id = 0;
     kernel_id = 0;
     kernel_body_id = 0;
+    ndp_req_id = 0;
     addr = 0;
     size = 0;
     offset = 0;
     scratchpad_map = nullptr;
+    first_req = false;
+    last_kb = false;
   }
 };
 

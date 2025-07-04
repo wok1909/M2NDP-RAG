@@ -6,6 +6,7 @@ namespace NDPSim {
 
 LDSTUnit::LDSTUnit(M2NDPConfig *config, int ndp_id, 
                 std::queue<Context> *finished_contexts,
+                std::queue<Context> *finished_uthreads,
                 std::vector<fifo_pipeline<mem_fetch>> *to_mem,
                 std::vector<fifo_pipeline<mem_fetch>> *from_mem, 
                 std::vector<fifo_pipeline<int64_t>> *to_reg,
@@ -14,6 +15,7 @@ LDSTUnit::LDSTUnit(M2NDPConfig *config, int ndp_id,
       m_cycle(0),
       m_config(config),
       m_finished_contexts(finished_contexts),
+      m_finished_uthreads(finished_uthreads),
       m_to_mem(to_mem),
       m_from_mem(from_mem),
       m_to_reg(to_reg),
@@ -259,6 +261,8 @@ void LDSTUnit::process_ldst_inst(ExecutionDelayQueue &ldst_unit) {
   ldst_unit.pop();
   if (context.last_inst && !inst.CheckLoadOp()) {
     m_finished_contexts->push(context);
+    if (context.request_info->last_kb)
+        m_finished_uthreads->push(context);
   }
 }
 
@@ -303,6 +307,8 @@ void LDSTUnit::process_spad_inst(ExecutionDelayQueue &spad_unit) {
     spad_unit.pop();
     if (context.last_inst) {
       m_finished_contexts->push(context);
+      if (context.request_info->last_kb)
+        m_finished_uthreads->push(context);
     }
   }
 }
@@ -496,6 +502,8 @@ void LDSTUnit::handle_response(mem_fetch* mf) {
     m_pending_ldst_context.erase(mf);
     if (context.last_inst) {
       m_finished_contexts->push(context);
+      if (context.request_info->last_kb)
+        m_finished_uthreads->push(context);
     }
   } else {
     assert(mf->get_type() == WRITE_ACK);

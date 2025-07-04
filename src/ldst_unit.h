@@ -25,6 +25,7 @@ class LDSTUnit {
  public:
   LDSTUnit(M2NDPConfig *config, int ndp_id, 
                 std::queue<Context> *finished_contexts,
+                std::queue<Context> *finished_uthreads,
                 std::vector<fifo_pipeline<mem_fetch>> *to_mem,
                 std::vector<fifo_pipeline<mem_fetch>> *from_mem, 
                 std::vector<fifo_pipeline<int64_t>> *to_reg,
@@ -70,6 +71,7 @@ class LDSTUnit {
   robin_hood::unordered_map<mem_fetch*, Context> m_pending_ldst_context;
   uint32_t m_pending_write_count;
   std::queue<Context> *m_finished_contexts;
+  std::queue<Context> *m_finished_uthreads;
 
   std::set<uint64_t> m_lock_spad_addr;
   void process_ldst_inst(ExecutionDelayQueue &ldst_unit);

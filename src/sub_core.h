@@ -38,7 +38,7 @@ class SubCore {
           fifo_pipeline<std::pair<NdpInstruction, Context>> *to_spad_unit,
           fifo_pipeline<std::pair<NdpInstruction, Context>> *to_v_ldst_unit,
           fifo_pipeline<std::pair<NdpInstruction, Context>> *to_v_spad_unit,
-          std::queue<Context> *finished_contexts);
+          std::queue<Context> *finished_contexts, std::queue<Context> *finished_uthreads);
 
   void cycle();
   void execute_instruction();
@@ -90,6 +90,7 @@ class SubCore {
   fifo_pipeline<std::pair<NdpInstruction, Context>> *m_to_v_spad_unit;
 
   std::queue<Context> *m_finished_contexts;
+  std::queue<Context> *m_finished_uthreads;
   NdpStats* m_stats;
   int m_active_queque_count;
   uint64_t m_deadlock_count;

@@ -33,6 +33,7 @@ class ExecutionUnit {
  public:
   ExecutionUnit(M2NDPConfig *config, int ndp_id, int sub_core_id, RegisterUnit *register_unit,
                 std::queue<Context> *finished_contexts,
+                std::queue<Context> *finished_uthreads,
                 fifo_pipeline<std::pair<NdpInstruction, Context>> *to_ldst_unit,
                 fifo_pipeline<std::pair<NdpInstruction, Context>> *to_spad_unit,
                 fifo_pipeline<std::pair<NdpInstruction, Context>> *to_v_ldst_unit,
@@ -70,6 +71,7 @@ class ExecutionUnit {
   std::vector<ExecutionDelayQueue> m_v_address_units;
 
   std::queue<Context> *m_finished_contexts;
+  std::queue<Context> *m_finished_uthreads;
   std::queue<Context> m_branch_contexts;
 
   std::set<uint64_t> m_lock_spad_addr;

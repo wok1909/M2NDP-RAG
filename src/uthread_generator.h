@@ -30,6 +30,7 @@ class UThreadGenerator {
   void increase_count(int launch_id);
   uint32_t get_allocated_spad_size();
   bool generate_uthreads(int threads);
+  uint32_t get_num_kernel_bodies(int kernel_id);
  private:
   M2NDPConfig* m_config;
   int m_ndp_id;

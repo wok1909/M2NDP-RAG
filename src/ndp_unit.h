@@ -90,6 +90,7 @@ class NdpUnit {
   std::vector<fifo_pipeline<std::pair<NdpInstruction, Context>>> m_to_v_ldst_unit;
   std::vector<fifo_pipeline<std::pair<NdpInstruction, Context>>> m_to_v_spad_unit;
 
+  std::queue<Context> m_finished_uthreads;
   std::queue<Context> m_finished_contexts;
   std::vector<int> uthread_count;
   NdpStats* m_stats;
@@ -99,6 +100,7 @@ class NdpUnit {
 
 #ifdef TIMING_SIMULATION
   void handle_finished_context();
+  void handle_finished_uthreads();
   void rf_writeback();
   void from_mem_handle();
   void l1_inst_cache_cycle();
@@ -112,6 +114,12 @@ class NdpUnit {
   Context pop_finished_context() {
     Context finished_context = m_finished_contexts.front();
     m_finished_contexts.pop();
+    return finished_context;
+  }
+  bool check_finished_uthreads() { return !m_finished_uthreads.empty(); }
+  Context pop_finished_uthreads() {
+    Context finished_context = m_finished_uthreads.front();
+    m_finished_uthreads.pop();
     return finished_context;
   }
 #endif

@@ -24,9 +24,9 @@ SubCore::SubCore(M2NDPConfig* config, MemoryMap* memory_map, NdpStats* stats, in
                 fifo_pipeline<std::pair<NdpInstruction, Context>> *to_spad_unit,
                 fifo_pipeline<std::pair<NdpInstruction, Context>> *to_v_ldst_unit,
                 fifo_pipeline<std::pair<NdpInstruction, Context>> *to_v_spad_unit,
-                std::queue<Context> *finished_contexts)
+                std::queue<Context> *finished_contexts, std::queue<Context> *finished_uthreads)
     : m_config(config), m_memory_map(memory_map), m_stats(stats), m_id(id), m_sub_core_id(sub_core_id),
-    m_inst_column_q(inst_column_q), m_to_icache(to_icache), m_from_icache(from_icache), m_finished_contexts(finished_contexts),
+    m_inst_column_q(inst_column_q), m_to_icache(to_icache), m_from_icache(from_icache), m_finished_contexts(finished_contexts), m_finished_uthreads(finished_uthreads),
     m_to_ldst_unit(to_ldst_unit), m_to_spad_unit(to_spad_unit), m_to_v_ldst_unit(to_v_ldst_unit), m_to_v_spad_unit(to_v_spad_unit) {
   m_num_ndp = config->get_num_ndp_units();
   m_register_unit = new RegisterUnit(m_config->get_num_x_registers(),
@@ -38,6 +38,7 @@ SubCore::SubCore(M2NDPConfig* config, MemoryMap* memory_map, NdpStats* stats, in
   m_instruction_queue = new InstructionQueue(m_config, m_id, m_sub_core_id, m_l0_icache);
   m_execution_unit = new ExecutionUnit(m_config, m_id, m_sub_core_id, m_register_unit,
                                         m_finished_contexts,
+                                        m_finished_uthreads,
                                         m_to_ldst_unit,
                                         m_to_spad_unit,
                                         m_to_v_ldst_unit,
@@ -72,12 +73,14 @@ void SubCore::SubCoreInitialize(int num_kernel_bodies, int uthread_sz) {
 }
 
 void SubCore::LoadContext(RequestInfo* info, int uthread_id) {
-  m_register_unit->LoadRegisters(uthread_id, info->scratchpad_map);
+  if (info->kernel_body_id == 0 && info->first_req)
+    InitializeRegister(info, uthread_id);
+    info->first_req = false;
+  m_register_unit->LoadRegisters(uthread_id);
 }
 
 void SubCore::StoreContext(RequestInfo* info, int uthread_id) {
-  m_register_unit->StoreRegisters(uthread_id, info->scratchpad_map);
-  m_register_unit->FreeRegs(uthread_id);
+  m_register_unit->StoreRegisters(uthread_id);
 }
 
 void SubCore::InitializeRegister(RequestInfo* info, int uthread_id) {
@@ -88,14 +91,15 @@ void SubCore::InitializeRegister(RequestInfo* info, int uthread_id) {
 int SubCore::ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
                                 int kernel_body_id, int uthread_sz, int uthread_id) {
   LoadContext(info, uthread_id);
-
+  // m_register_unit->LoadMappingState(uthread_id);
   std::deque<NdpInstruction> renamed = m_register_unit->Convert(
     m_ndp_kernel->kernel_body_insts[kernel_body_id], uthread_id, info);
-
+  // m_register_unit->StoreMappingState(uthread_id);
   insts_list.at(uthread_id).at(kernel_body_id) = renamed;
 
   int result = ExecuteInsts_Array(spad_map, insts_list.at(uthread_id), info, m_ndp_kernel->loop_map, kernel_body_id, uthread_sz, uthread_id);
   StoreContext(info, uthread_id);
+  // m_register_unit->FreeRegs(uthread_id);
 
   return result;
 }
@@ -300,7 +304,11 @@ void SubCore::instruction_register_allocate() {
     return;
   }
   m_inst_column_q->pop();
+  // if (inst->req->type == NDPSim::KERNEL_BODY)
+  //   m_register_unit->LoadMappingState(inst->req->ndp_req_id);
   m_register_unit->RenamePush(inst, inst->req->id);
+  // if (inst->req->type == NDPSim::KERNEL_BODY)
+  //   m_register_unit->LoadMappingState(inst->req->ndp_req_id);
 }
 
 bool SubCore::is_active() {
