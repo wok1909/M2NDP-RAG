@@ -52,25 +52,43 @@ SubCore::SubCore(M2NDPConfig* config, MemoryMap* memory_map, NdpStats* stats, in
 }
 #endif
 
+void SubCore::SubCoreInitialize(int num_kernel_bodies, int uthread_sz) {
+  branch_idx.resize(uthread_sz);
+  insts_list.resize(uthread_sz);
+  for (int i=0; i<uthread_sz; i++) {
+    branch_idx.at(i) = 0;
+    insts_list.at(i).resize(num_kernel_bodies);
+  }
+}
+
 void SubCore::ExecuteInitializer(MemoryMap* spad_map, RequestInfo* info) {
   std::deque<NdpInstruction> renamed = m_register_unit->Convert(
       m_ndp_kernel->initializer_insts, info->id, info);
-  ExecuteInsts_Array(spad_map, renamed, info, m_ndp_kernel->loop_map, 1);
+  std::vector<std::deque<NdpInstruction>> initializer_renamed;
+  initializer_renamed.push_back(renamed);
+  ExecuteInsts_Array(spad_map, initializer_renamed, info, m_ndp_kernel->loop_map, 0, 1);
   m_register_unit->FreeRegs(info->id);
 }
 
-void SubCore::ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
-                                int kernel_body_id, int uthread_sz, int uthread_id) {
+int SubCore::ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
+                                int kernel_body_id, int uthread_sz) {
   std::deque<NdpInstruction> renamed = m_register_unit->Convert(
-      m_ndp_kernel->kernel_body_insts[kernel_body_id], info->id, info);
-  ExecuteInsts_Array(spad_map, renamed, info, m_ndp_kernel->loop_map, uthread_sz, uthread_id);
+    m_ndp_kernel->kernel_body_insts[kernel_body_id], info->id, info);
+  insts_list.at(info->ndp_req_id).at(kernel_body_id) = renamed;
+  // printf("Running KB: %d\n", kernel_body_id);
+  int result = ExecuteInsts_Array(spad_map, insts_list.at(info->ndp_req_id), info, m_ndp_kernel->loop_map, kernel_body_id, uthread_sz);
+  // printf("Result KB: %d\n", result);
   m_register_unit->FreeRegs(info->id);
+  return result;
 }
+
 
 void SubCore::ExecuteFinalizer(MemoryMap* spad_map, RequestInfo* info) {
-  std::deque<NdpInstruction> finalizer_renamed =
+  std::deque<NdpInstruction> renamed =
       m_register_unit->Convert(m_ndp_kernel->finalizer_insts, info->id, info);
-  ExecuteInsts_Array(spad_map, finalizer_renamed, info, m_ndp_kernel->loop_map, 1);
+  std::vector<std::deque<NdpInstruction>> finalizer_renamed;
+  finalizer_renamed.push_back(renamed);
+  ExecuteInsts_Array(spad_map, finalizer_renamed, info, m_ndp_kernel->loop_map, 0, 1);
   m_register_unit->FreeRegs(info->id);
 }
 
@@ -90,29 +108,46 @@ void SubCore::ExecuteInsts(MemoryMap* spad_map,
   }
 }
 
-void SubCore::ExecuteInsts_Array(MemoryMap* spad_map,
-                                 std::deque<NdpInstruction> insts,
+int SubCore::ExecuteInsts_Array(MemoryMap* spad_map,
+                                 std::vector<std::deque<NdpInstruction>> insts_list,
                                  RequestInfo* info,
-                                 const std::map<int, int>& loop_map,
-                                 int uthread_sz,
-                                 int uthread_id) {
+                                 const std::vector<std::map<int, int>>& loop_map,
+                                 int kernel_body_id,
+                                 int uthread_sz) {
   CSR csr;
   Context context;
   context.ndp_id = m_id;
   context.sub_core_id = m_sub_core_id;
-  context.uthread_id = uthread_id;
+  context.uthread_id = info->ndp_req_id;
   context.csr = &csr;
   context.memory_map = m_memory_map;
   context.scratchpad_map = spad_map;
   context.register_map = m_register_unit;
   context.request_info = info;
   context.uthread_sz = uthread_sz;
-  for (int i = 0; i < insts.size(); i++) {
+  std::deque<NdpInstruction> insts = insts_list.at(kernel_body_id);
+  // printf("<<<< KB: %d, uthread_id: %d, uthread_sz: %d, insts.size(): %d>>>>\n", kernel_body_id, context.uthread_id, uthread_sz, insts.size());
+  if (context.uthread_id >= uthread_sz || insts.size() == 0)
+    return kernel_body_id;
+  // printf("Start inst: %s\n", insts.at(branch_idx.at(context.uthread_id)).sInst.c_str());
+  for (int i = branch_idx.at(context.uthread_id); i < insts.size(); i++) {
     try {
       insts.at(i).Execute(context);
+      // printf("Running inst: %s\n", insts.at(i).sInst.c_str());
       int key = insts.at(i).IsBranch();
       if (key >= 0) {
-        i = loop_map.find(key)->second - 1;
+        for (int j=0; j < loop_map.size(); j++) {
+          auto it = loop_map.at(j).find(key);
+          if (it != loop_map.at(j).end()) {
+            if (j != kernel_body_id) {
+              branch_idx.at(context.uthread_id) = it->second;
+              // printf("Branch to: %s\n", insts_list.at(j).at(it->second).sInst.c_str());
+              return j;
+            }
+            i = it->second - 1;
+            break;
+          }
+        }
       }
     } catch (const std::runtime_error& error) {
       spdlog::error("=============================EXECUTION PANIC=============================");
@@ -123,6 +158,8 @@ void SubCore::ExecuteInsts_Array(MemoryMap* spad_map,
       throw error;
     }
   }
+  branch_idx.at(context.uthread_id) = 0;
+  return kernel_body_id;
 }
 
 #ifdef TIMING_SIMULATION

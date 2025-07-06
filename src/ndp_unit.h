@@ -58,6 +58,7 @@ class NdpUnit {
   NdpKernel* m_ndp_kernel;
   MemoryMap* m_memory_map;
   std::vector<SubCore*> m_sub_core_units;
+  std::vector<int> m_uthread_sync_idx;
 #ifdef TIMING_SIMULATION
   UThreadGenerator* m_uthread_generator;
   InstructionBuffer* m_instruction_buffer;
@@ -103,7 +104,7 @@ class NdpUnit {
   void connect_to_ldst_unit();
   void connect_instruction_buffer_to_sub_core();
   void request_instruction_lookup();
-  
+
   bool check_finished_context() { return !m_finished_contexts.empty(); }
   Context pop_finished_context() {
     Context finished_context = m_finished_contexts.front();
