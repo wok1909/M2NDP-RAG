@@ -268,14 +268,24 @@ void NdpUnit::handle_finished_context() {
   while (check_finished_context()) {
     Context context = pop_finished_context();
     int sub_core_id = context.sub_core_id;
+    if (context.request_info->type == KERNEL_BODY && context.uthread_id == 0) {
+      bool is_branch = (context.kernel_body_id != context.request_info->kernel_body_id) ? true : false;
+      int next_kb = context.kernel_body_id + 1;
+      int pc = 0;
+      if (is_branch) {
+        next_kb = context.kernel_body_id;
+        pc = context.csr->pc;
+      }
+      m_uthread_generator->generate_kernel_body(context.request_info->launch_id, next_kb, pc);
+    }
     if (context.request_info->type == FINALIZER) {
       m_uthread_generator->finish_launch(context.request_info->launch_id);
     }
 
     if (sub_core_id == -1) {
-      m_uthread_generator->increase_count(context.request_info->launch_id);
+      m_uthread_generator->increase_count(context);
     } else {
-      m_uthread_generator->increase_count(context.request_info->launch_id);
+      m_uthread_generator->increase_count(context);
       m_sub_core_units[sub_core_id]->free_rf(context.request_info->id);
       m_sub_core_units[sub_core_id]->free_inst_column(context.inst_col_id);
     }

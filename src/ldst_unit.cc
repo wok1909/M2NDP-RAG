@@ -4,12 +4,12 @@
 #include "memory_map.h"
 namespace NDPSim {
 
-LDSTUnit::LDSTUnit(M2NDPConfig *config, int ndp_id, 
+LDSTUnit::LDSTUnit(M2NDPConfig *config, int ndp_id,
                 std::queue<Context> *finished_contexts,
                 std::vector<fifo_pipeline<mem_fetch>> *to_mem,
-                std::vector<fifo_pipeline<mem_fetch>> *from_mem, 
+                std::vector<fifo_pipeline<mem_fetch>> *from_mem,
                 std::vector<fifo_pipeline<int64_t>> *to_reg,
-                Tlb *tlb, NdpStats *stats) 
+                Tlb *tlb, NdpStats *stats)
     : m_ndp_id(ndp_id),
       m_cycle(0),
       m_config(config),
@@ -30,7 +30,7 @@ LDSTUnit::LDSTUnit(M2NDPConfig *config, int ndp_id,
     m_spad_units.push_back(
         ExecutionDelayQueue("spad_unit_" + std::to_string(i)));
   }
-  
+
   for (int i = 0; i < config->get_num_v_ldst_units(); i++) {
     m_v_ldst_units.push_back(
         ExecutionDelayQueue("v_ldst_unit_" + std::to_string(i)));
@@ -86,7 +86,7 @@ void LDSTUnit::cycle() {
     spad_unit.cycle();
     process_spad_inst(spad_unit);
   }
-  
+
   for (auto &v_ldst_unit : m_v_ldst_units) {
     v_ldst_unit.cycle();
     process_ldst_inst(v_ldst_unit);
@@ -95,7 +95,7 @@ void LDSTUnit::cycle() {
     v_spad_unit.cycle();
     process_spad_inst(v_spad_unit);
   }
-  
+
   m_spad_delay_queue.cycle();
 
   // Tlb handle
@@ -188,7 +188,7 @@ void LDSTUnit::process_ldst_inst(ExecutionDelayQueue &ldst_unit) {
       mf->set_ndp_id(m_ndp_id);
       mf->set_channel(m_config->get_channel_index(addr));
       if(m_config->is_bi_enabled()) {
-        if( rand() % 100 < (m_config->get_bi_rate()*100) 
+        if( rand() % 100 < (m_config->get_bi_rate()*100)
           && !m_config->is_handled_bi_addr(addr) && !m_config->is_bi_inprogress(addr)) {
           mf->set_bi();
           m_config->insert_handled_bi_addr(addr);
@@ -213,7 +213,7 @@ void LDSTUnit::process_ldst_inst(ExecutionDelayQueue &ldst_unit) {
         info->count += 1;
       }
       mf->set_read_request(info);
-      int bank_id = m_config->get_bank_index(addr) % m_config->get_l1d_num_banks(); 
+      int bank_id = m_config->get_bank_index(addr) % m_config->get_l1d_num_banks();
       if (inst.CheckAmoOp())  // Global Atomic opeation performs on L2 cache
       {
         mf->set_atomic(true);
@@ -328,7 +328,7 @@ void LDSTUnit::handle_from_mem(int bank) {
     }
     else {
       handle_response(mf);
-    } 
+    }
     (*m_from_mem)[bank].pop();
   }
 }
@@ -401,7 +401,7 @@ void LDSTUnit::l1_latency_queue_cycle() {
 
 void LDSTUnit::process_l1d_access() {
   for(int bank = 0; bank < m_config->get_l1d_num_banks(); bank++) {
-    //Core to L1 cache  
+    //Core to L1 cache
     if(!m_l1_latency_queue[bank].empty()) {
       mem_fetch* mf = m_l1_latency_queue[bank].top();
       // if ((mf->is_atomic() || m_config->get_skip_l1d() ||m_config->is_bi_inprogress(mf->get_addr())) &&

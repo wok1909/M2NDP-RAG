@@ -16,6 +16,7 @@ class UThreadGenerator {
   UThreadGenerator(M2NDPConfig* config, int ndp_id,
                    fifo_pipeline<RequestInfo>* matched_requests);
   void launch(KernelLaunchInfo info);
+  void generate_kernel_body(int launch_id, int kernel_body_id, uint64_t pc);
 
   void register_kernel(NdpKernel* kernel);
   void unregister_kernel(int kernel_id);
@@ -27,7 +28,7 @@ class UThreadGenerator {
   void print_all(FILE* fp);
   void cycle();
   void increase_filter_count(int index);
-  void increase_count(int launch_id);
+  void increase_count(Context context);
   uint32_t get_allocated_spad_size();
   bool generate_uthreads(int threads);
  private:
@@ -36,7 +37,7 @@ class UThreadGenerator {
   unsigned m_total_functions;
   bool m_request_processed;
   bool m_launched = false;
-  
+
   std::set<int> m_registered_functions;
   std::map<int, int> m_num_kernel_bodies;
   std::set<int> m_active_launch_ids;

@@ -8,14 +8,14 @@ class Sync0(NdpKernel):
     def __init__(self):
         super().__init__()
         self.vector_size = 8 * 8 * 3
-        self.reg_context_addr = 0x1000000000010000
+        self.reg_context_addr = 0x1000000000001000
         self.count_addr = 0x800000000000
         self.context_sz = 128
         self.sync = 0
         self.kernel_id = 0
         self.kernel_name = 'test_sync0'
         self.bound = self.vector_size * configs.data_size
-        self.smem_size = 0x1000000
+        self.smem_size = 0x10000 - 0x10
 
         self.input = (np.array([0, 0, 0], dtype=np.int32))
         self.output = (np.array([1, 2, 3], dtype=np.int32))
@@ -30,7 +30,7 @@ class Sync0(NdpKernel):
         template += f'-kernel name = {self.kernel_name}\n'
         template += f'-kernel id = {self.kernel_id}\n'
         template += '\n'
-        template += f'KERNELBODY:\n'
+        template += f'KERNELBODY:\n'  # KERNELBODY 0
         template += f'vsetvli 0, 0, e32, m1, 0\n'
         template += f'addi x3, UTHREADID, 0\n'
         template += f'li x4, 0\n' # outer loop count
@@ -60,7 +60,7 @@ class Sync0(NdpKernel):
         template += f'sw x4, 4(x31)\n'
         template += f'sw x5, 8(x31)\n'
 
-        template += f'KERNELBODY:\n'  # Inner loop
+        template += f'KERNELBODY:\n'  # KERNELBODY 1: Inner loop
         # Load reg context
         template += f'li x1, {configs.spad_addr}\n'
         template += f'ld x31, (x1)\n'
@@ -80,7 +80,7 @@ class Sync0(NdpKernel):
         template += f'sw x4, 4(x31)\n'
         template += f'sw x5, 8(x31)\n'
 
-        template += f'KERNELBODY:\n'
+        template += f'KERNELBODY:\n'  # KERNELBODY 2
         # Load reg context
         template += f'li x1, {configs.spad_addr}\n'
         template += f'ld x31, (x1)\n'
@@ -91,7 +91,8 @@ class Sync0(NdpKernel):
         template += f'lw x5, 8(x31)\n'
 
         template += f'addi x4, x4, 1\n'
-        template += f'TEST.v.x x4\n'
+        template += f'muli x10, x4, 10\n'
+        template += f'TEST.v.x x10\n'
 
         # Store reg context
         template += f'sw x3, (x31)\n'

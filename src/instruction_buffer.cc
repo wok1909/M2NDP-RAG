@@ -72,6 +72,7 @@ void InstructionBuffer::cycle() {
     col->fregs = m_ndp_kernels[req->kernel_id]->kernel_body_fregs[req->kernel_body_id];
     col->vregs = m_ndp_kernels[req->kernel_id]->kernel_body_vregs[req->kernel_body_id];
     col->loop_map = m_ndp_kernels[req->kernel_id]->loop_map;
+    col->csr.pc = req->pc;
   }
   col->kernel_id = req->kernel_id;
   col->req = req;

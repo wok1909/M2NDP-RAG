@@ -52,7 +52,7 @@ ExecutionUnit::ExecutionUnit(M2NDPConfig *config, int ndp_id, int sub_core_id, R
 }
 
 bool ExecutionUnit::active() {
-  return  !m_to_ldst_unit->empty()|| !m_to_spad_unit->empty() || 
+  return  !m_to_ldst_unit->empty()|| !m_to_spad_unit->empty() ||
           !m_to_v_ldst_unit->empty() || !m_to_v_spad_unit->empty() ||
           !check_unit_finished();
 }
@@ -66,19 +66,38 @@ void ExecutionUnit::cycle() {
     if (inst.CheckDestWrite()) {
       m_register_unit->SetReady(inst.dest);
     }
+    bool branch_kb = false;
     if (inst.CheckBranchOp()) {
       context.csr->block = false;
       int branch_target = inst.IsBranch();
-      if (branch_target != -1)
-        context.csr->pc = context.loop_map->at(branch_target);
+      if (branch_target != -1) {
+        bool found = false;
+        for (int kb=0; kb < context.loop_map->size(); kb++) {
+          auto it = context.loop_map->at(kb).find(branch_target);
+          if (it != context.loop_map->at(kb).end()) {
+            context.csr->pc = it->second;
+            found = true;
+            if (kb != context.request_info->kernel_body_id) {
+              branch_kb = true;
+              context.kernel_body_id = kb;
+            }
+            break;
+          }
+        }
+        if (!found) {
+          fprintf(stderr, "[Error] Cannot found branch target..\n");
+          assert(0);
+        }
+      }
       else
         context.csr->pc++;
-
-      if (context.max_pc < context.csr->pc) context.last_inst = true;
     }
-    if (context.last_inst) {
+    if (context.max_pc < context.csr->pc && !branch_kb) {
+      context.last_inst = true;
+      context.csr->pc = 0;
+    }
+    if (context.last_inst || branch_kb)
       m_finished_contexts->push(context);
-    }
     i_unit.pop();
   }
   process_default_execution_units(m_f_units);
@@ -204,14 +223,14 @@ Status ExecutionUnit::issue(NdpInstruction &inst, Context context) {
           uint64_t addr = MemoryMap::FormatAddr(base_addr + idx);
           inst.addr_set.insert(addr);
         }
-      } 
+      }
       else {
         uint64_t addr = MemoryMap::FormatAddr(base_addr);
         inst.addr_set.insert(addr);
       }
       inst_issue_interval *= inst.addr_set.size();
       if (inst.addr_set.empty()) throw std::runtime_error("addr set is empty");
-    } else { 
+    } else {
       // General Load Store Address Calculation
       int req_size = m_config->get_packet_size();
       if(inst.opcode == VLE16 || inst.opcode == VSE16) req_size = 16;
@@ -222,7 +241,7 @@ Status ExecutionUnit::issue(NdpInstruction &inst, Context context) {
         inst.addr_set.insert(MemoryMap::FormatAddr(base_addr + inst.src[1] + i * m_config->get_packet_size()));
     }
   }
-  
+
   if (m_config->is_functional_sim() || spad_op || (alu_op_type != ADDRESS_OP))
     inst.Execute(context);
 

@@ -55,6 +55,9 @@ void UThreadGenerator::launch(KernelLaunchInfo kinfo) {
   assert(kinfo.smem_size <= m_config->get_spad_size()); // SMEM size should be less than SPAD size
   m_launch_infos[kinfo.launch_id].scratchpad_map = new HashMemoryMap(SCRATCHPAD_BASE, kinfo.smem_size);
   assert(size % PACKET_SIZE == 0);
+  int uthread_sz = m_config->get_uthread_size(m_ndp_id, size);
+  m_launch_infos[kinfo.launch_id].uthread_size = uthread_sz;
+  m_launch_infos[kinfo.launch_id].uthread_finish_counter = 0;
   bool initializer = true;
   std::deque<RequestInfo*> requests;
   if (m_registered_functions.find(kernel_id) == m_registered_functions.end()) {
@@ -64,7 +67,7 @@ void UThreadGenerator::launch(KernelLaunchInfo kinfo) {
   spdlog::info("NDP {} Kernel launch for function {} base {:x} size {}",
                m_ndp_id, kernel_id, base, size);
   uint64_t ndp_offset = 0;
-  uint64_t spad_addr = SCRATCHPAD_BASE; 
+  uint64_t spad_addr = SCRATCHPAD_BASE;
   int num_args = kinfo.arg_size / DOUBLE_SIZE - kinfo.num_float_args;
   int num_args_per_packet = PACKET_SIZE / DOUBLE_SIZE;
   int outter = 0;
@@ -94,7 +97,8 @@ void UThreadGenerator::launch(KernelLaunchInfo kinfo) {
     m_launch_infos[kinfo.launch_id].scratchpad_map->Store(
         spad_addr + outter * PACKET_SIZE, data);
   }
-  
+
+  int ndp_req_idx = 0;
   for (uint64_t addr = base; addr < base + size; addr += PACKET_SIZE) {
     if (!check_addr_match(addr)) continue;
     if (initializer) {
@@ -104,6 +108,7 @@ void UThreadGenerator::launch(KernelLaunchInfo kinfo) {
       info->id = global_req_id++;
       info->addr = base;
       info->offset = m_ndp_id;
+      info->ndp_req_id = 0;
       info->type = INITIALIZER;
       info->scratchpad_map = m_launch_infos[kinfo.launch_id].scratchpad_map;
       requests.push_back(info);
@@ -115,34 +120,10 @@ void UThreadGenerator::launch(KernelLaunchInfo kinfo) {
     info->launch_id = launch_id;
     info->addr = addr;
     info->offset = addr - base;
+    info->size = uthread_sz;
+    info->ndp_req_id = ndp_req_idx++;
     info->type = KERNEL_BODY;
     info->kernel_body_id = 0;
-    info->scratchpad_map = m_launch_infos[kinfo.launch_id].scratchpad_map;
-    requests.push_back(info);
-  }
-  for(int kid = 1; kid < m_num_kernel_bodies[kernel_id]; kid++) {
-    for (uint64_t addr = base; addr < base + size; addr += PACKET_SIZE) {
-      if (!check_addr_match(addr)) continue;
-      RequestInfo* info = new RequestInfo();
-      info->kernel_id = kernel_id;
-      info->id = global_req_id++;
-      info->launch_id = launch_id;
-      info->addr = addr;
-      info->offset = addr - base;
-      info->type = KERNEL_BODY;
-      info->kernel_body_id = kid;
-      info->scratchpad_map = m_launch_infos[kinfo.launch_id].scratchpad_map;
-      requests.push_back(info);
-    }
-  }
-  if (requests.size() > 0) {
-    RequestInfo* info = new RequestInfo();
-    info->kernel_id = kernel_id;
-    info->id = global_req_id++;
-    info->launch_id = launch_id;
-    info->addr = base;
-    info->offset = m_ndp_id;
-    info->type = FINALIZER;
     info->scratchpad_map = m_launch_infos[kinfo.launch_id].scratchpad_map;
     requests.push_back(info);
   }
@@ -151,15 +132,67 @@ void UThreadGenerator::launch(KernelLaunchInfo kinfo) {
   if (!requests.empty()) {
     m_launch_queue.push_back(launch_id);
     m_generated_requests[launch_id] = requests;
-  } 
+  }
   else {
     finish_launch(launch_id);
-  } 
+  }
   check_kernel_launch();
 }
 
-void UThreadGenerator::increase_count(int launch_id) {
+void UThreadGenerator::generate_kernel_body(int launch_id, int kernel_body_id, uint64_t pc) {
+  KernelLaunchInfo kinfo = m_launch_infos[launch_id];
+  uint64_t base = kinfo.base_addr;
+  uint64_t size = kinfo.size;
+  uint64_t kernel_id = kinfo.kernel_id;
+
+  uint64_t ndp_offset = 0;
+  uint64_t spad_addr = SCRATCHPAD_BASE;
+  int uthread_sz = m_config->get_uthread_size(m_ndp_id, size);
+  int num_args = kinfo.arg_size / DOUBLE_SIZE - kinfo.num_float_args;
+  int num_args_per_packet = PACKET_SIZE / DOUBLE_SIZE;
+
+  std::deque<RequestInfo*> requests;
+  if (kernel_body_id < m_num_kernel_bodies[kernel_id]) {
+    int ndp_req_idx = 0;
+    for (uint64_t addr = base; addr < base + size; addr += PACKET_SIZE) {
+      if (!check_addr_match(addr)) continue;
+      RequestInfo* info = new RequestInfo();
+      info->kernel_id = kernel_id;
+      info->id = global_req_id++;
+      info->launch_id = launch_id;
+      info->addr = addr;
+      info->offset = addr - base;
+      info->size = uthread_sz;
+      info->ndp_req_id = ndp_req_idx++;
+      info->type = KERNEL_BODY;
+      info->kernel_body_id = kernel_body_id;
+      info->pc = pc;
+      info->scratchpad_map = m_launch_infos[kinfo.launch_id].scratchpad_map;
+      m_generated_requests[launch_id].push_back(info);
+      m_total_requests[launch_id]++;
+    }
+  } else {
+    RequestInfo* info = new RequestInfo();
+    info->kernel_id = kernel_id;
+    info->id = global_req_id++;
+    info->launch_id = launch_id;
+    info->addr = base;
+    info->offset = m_ndp_id;
+    info->ndp_req_id = 0;
+    info->type = FINALIZER;
+    info->scratchpad_map = m_launch_infos[kinfo.launch_id].scratchpad_map;
+    m_generated_requests[launch_id].push_back(info);
+    m_total_requests[launch_id]++;
+  }
+}
+
+void UThreadGenerator::increase_count(Context context) {
+  int launch_id = context.request_info->launch_id;
   m_count_requests[launch_id] += 1;
+
+  if (context.request_info->type == KERNEL_BODY &&
+      context.kernel_body_id == m_num_kernel_bodies[m_launch_infos[launch_id].kernel_id] - 1)
+    m_launch_infos[launch_id].uthread_finish_counter++;
 }
 
 void UThreadGenerator::finish_launch(int launch_id) {
@@ -186,7 +219,7 @@ void UThreadGenerator::cycle() {
       RequestInfo* info = m_generated_requests[launch_id].front();
       if (info->type == FINALIZER) {
         //have to check KERNEL_BODY requests are done at all sub-core
-        if (m_count_requests[launch_id] == (m_total_requests[launch_id] - 1)) {
+        if (m_launch_infos[launch_id].uthread_finish_counter == m_launch_infos[launch_id].uthread_size) {
           spdlog::debug("NDP {}: Push to uthread_requests_queue as all KERNEL_BODY is done", m_ndp_id);
           m_uthread_request_queue->push(info);
           m_generated_requests[launch_id].pop_front();
@@ -263,23 +296,13 @@ int UThreadGenerator::get_next_launch_id() {
 }
 
 bool UThreadGenerator::check_can_issue(RequestInfo* info) {
-  
   if(info->type == INITIALIZER) return true;
-  else if(info->type == KERNEL_BODY) {
-    if(m_count_requests[info->launch_id] == 0) return false;
-    int reqs_per_body = (m_total_requests[info->launch_id] - 2) / m_num_kernel_bodies[info->kernel_id] ;
-    int after_initializer = m_count_requests[info->launch_id] -1;
-    if (info->kernel_body_id == after_initializer / reqs_per_body) {
+  else if(info->type == KERNEL_BODY || info->type == FINALIZER) {
+    if(m_count_requests[info->launch_id] == 0)
+      return false;
+    else
       return true;
-    }
-      
-    else return false;
   }
-  else if(info->type == FINALIZER) {
-    if(m_count_requests[info->launch_id] == (m_total_requests[info->launch_id] - 1)) return true;
-    else return false;
-  }
-  else return false;
 }
 }  // namespace NDPSim
 

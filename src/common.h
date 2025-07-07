@@ -52,6 +52,8 @@ struct KernelLaunchInfo {
   float float_args[MAX_NR_FLOAT_ARG]; //12B
   int host_id;
   int launch_id;
+  int uthread_size;
+  int uthread_finish_counter;
   std::string kernel_name;
   mem_fetch* cxl_command;
   MemoryMap* scratchpad_map;
@@ -70,6 +72,7 @@ struct RequestInfo {
   uint64_t addr;
   uint64_t size;
   uint64_t offset;
+  uint64_t pc;
   MemoryMap* scratchpad_map;
 
   void clear() {
@@ -82,6 +85,7 @@ struct RequestInfo {
     addr = 0;
     size = 0;
     offset = 0;
+    pc = 0;
     scratchpad_map = nullptr;
   }
 };
@@ -109,12 +113,13 @@ struct Context {
   int sub_core_id;
   int uthread_id;
   int inst_col_id;
+  int kernel_body_id;
   CSR *csr;
   bool *blocking;  // instruction blocking
   MemoryMap *memory_map;
   MemoryMap *scratchpad_map;
   RegisterUnit *register_map;
-  std::vector<std::map<int, int>> loop_map;
+  std::vector<std::map<int, int>> *loop_map;
   RequestInfo *request_info;
   bool last_inst;
   int max_pc;

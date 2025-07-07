@@ -16,7 +16,7 @@ InstructionQueue::InstructionQueue(M2NDPConfig *config, int id, int sub_core_id,
   m_l0_icache_hit_latency = m_config->get_l0icache_hit_latency();
 }
 
-void InstructionQueue::set_ideal_icache() { 
+void InstructionQueue::set_ideal_icache() {
   m_ideal_icache = true;
   m_l0_icache_hit_latency = 0;
 }
@@ -71,7 +71,9 @@ Context InstructionQueue::fetch_context() {
   Context context;
   context.ndp_id = m_id;
   context.sub_core_id = m_sub_core_id;
+  context.uthread_id = (*m_inst_columns_iter)->req->ndp_req_id;
   context.inst_col_id = (*m_inst_columns_iter)->id;
+  context.kernel_body_id = (*m_inst_columns_iter)->req->kernel_body_id;
   context.request_info = (*m_inst_columns_iter)->req;
   context.csr = &(*m_inst_columns_iter)->csr;
   context.loop_map = &(*m_inst_columns_iter)->loop_map;
