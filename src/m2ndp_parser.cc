@@ -47,6 +47,8 @@ void M2NDPParser::parse_ndp_kernel(int num_simd, std::string file_path,
   int step = 0;
   int inst_count = 0;
   int arr_idx = 0;
+  std::map<int, int> initializer_loop_map;
+  std::map<int, int> finalizer_loop_map;
   std::vector<std::map<int, int>> loop_map;
   std::deque<NdpInstruction> initializer_insts;
   std::deque<std::deque<NdpInstruction>> kernel_body_insts;
@@ -74,10 +76,20 @@ void M2NDPParser::parse_ndp_kernel(int num_simd, std::string file_path,
       step = 2;
     } else if (line.substr(0, 5) == ".LOOP") {
       int loop_num = std::stoi(line.substr(5));
-      loop_map.at(kernel_bodies - 1)[loop_num] = arr_idx;
+      if (step == 0)
+        initializer_loop_map[loop_num] = arr_idx;
+      else if (step == 1)
+        loop_map.at(kernel_bodies - 1)[loop_num] = arr_idx;
+      else if (step == 2)
+        finalizer_loop_map[loop_num] = arr_idx;
     } else if (line.substr(0, 5) == ".SKIP") {
       int loop_num = std::stoi(line.substr(5)) + SKIP_LABEL;
-      loop_map.at(kernel_bodies - 1)[loop_num] = arr_idx;
+      if (step == 0)
+        initializer_loop_map[loop_num] = arr_idx;
+      else if (step == 1)
+        loop_map.at(kernel_bodies - 1)[loop_num] = arr_idx;
+      else if (step == 2)
+        finalizer_loop_map[loop_num] = arr_idx;
     } else {
       if (step == 0) {
         initializer_insts.push_back(ParseNdpInstruction(line));
@@ -98,6 +110,8 @@ void M2NDPParser::parse_ndp_kernel(int num_simd, std::string file_path,
   ndp_kernel->kernel_body_insts = kernel_body_insts;
   ndp_kernel->finalizer_insts = finalizer_insts;
   ndp_kernel->loop_map = loop_map;
+  ndp_kernel->initializer_loop_map = initializer_loop_map;
+  ndp_kernel->finalizer_loop_map = finalizer_loop_map;
 }
 
 uint32_t GetRegValue(std::string src) {

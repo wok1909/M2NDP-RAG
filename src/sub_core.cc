@@ -66,7 +66,7 @@ void SubCore::ExecuteInitializer(MemoryMap* spad_map, RequestInfo* info) {
       m_ndp_kernel->initializer_insts, info->id, info);
   std::vector<std::deque<NdpInstruction>> initializer_renamed;
   initializer_renamed.push_back(renamed);
-  ExecuteInsts_Array(spad_map, initializer_renamed, info, m_ndp_kernel->loop_map, 0, 1);
+  ExecuteInsts_Array(spad_map, initializer_renamed, info, std::vector<std::map<int, int>>{m_ndp_kernel->initializer_loop_map}, 0, 1);
   m_register_unit->FreeRegs(info->id);
 }
 
@@ -75,7 +75,7 @@ int SubCore::ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
   std::deque<NdpInstruction> renamed = m_register_unit->Convert(
     m_ndp_kernel->kernel_body_insts[kernel_body_id], info->id, info);
   insts_list.at(info->ndp_req_id).at(kernel_body_id) = renamed;
-  // printf("Running KB: %d\n", kernel_body_id);
+  // printf("<<<<< UThread %d running KB %d >>>>>\n", info->ndp_req_id, kernel_body_id);
   int result = ExecuteInsts_Array(spad_map, insts_list.at(info->ndp_req_id), info, m_ndp_kernel->loop_map, kernel_body_id, uthread_sz);
   // printf("Result KB: %d\n", result);
   m_register_unit->FreeRegs(info->id);
@@ -88,7 +88,7 @@ void SubCore::ExecuteFinalizer(MemoryMap* spad_map, RequestInfo* info) {
       m_register_unit->Convert(m_ndp_kernel->finalizer_insts, info->id, info);
   std::vector<std::deque<NdpInstruction>> finalizer_renamed;
   finalizer_renamed.push_back(renamed);
-  ExecuteInsts_Array(spad_map, finalizer_renamed, info, m_ndp_kernel->loop_map, 0, 1);
+  ExecuteInsts_Array(spad_map, finalizer_renamed, info, std::vector<std::map<int, int>>{m_ndp_kernel->finalizer_loop_map}, 0, 1);
   m_register_unit->FreeRegs(info->id);
 }
 

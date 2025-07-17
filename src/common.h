@@ -35,7 +35,9 @@ struct NdpKernel {
   int num_kernel_bodies;
   std::deque<NdpInstruction> initializer_insts;
   std::deque <std::deque<NdpInstruction>> kernel_body_insts;
+  std::map<int, int> initializer_loop_map;
   std::vector<std::map<int, int>> loop_map;
+  std::map<int, int> finalizer_loop_map;
   std::deque<NdpInstruction> finalizer_insts;
 };
 
