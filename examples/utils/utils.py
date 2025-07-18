@@ -17,7 +17,7 @@ class NdpKernel:
     @abstractmethod
     def make_kenrel(self):
         pass
-    
+
     @abstractmethod
     def make_input_map(self):
         pass
@@ -62,14 +62,50 @@ class NdpKernel:
                         result += f' 0x{addr:x}'
                 result_list.append(result)
             return result_list
-        
+
+    def load_registers(self, free_regs, scalar_regs=None, float_regs=None, vector_regs=None):
+        assert(len(free_regs)==2)
+        code = f"li x{free_regs[0]}, {self.register_context_addr}\n"
+        code += f'muli x{free_regs[1]}, UTHREADID, {self.context_size}\n'
+        code += f'add x{free_regs[0]}, x{free_regs[0]}, x{free_regs[1]}\n'
+        if scalar_regs:
+            for reg in scalar_regs:
+                code += f'ld x{reg}, {reg<<3}(x{free_regs[0]})\n'
+        if float_regs:
+            code += f'addi x{free_regs[0]}, x{free_regs[0]}, {self.context_size * 32}\n'
+            for reg in float_regs:
+                code += f'ld f{reg}, {reg<<3}(x{free_regs[0]})\n'
+        if vector_regs:
+            code += f'addi x{free_regs[0]}, x{free_regs[0]}, {self.context_size * 32}\n' if float_regs else f'addi x{free_regs[0]}, x{free_regs[0]}, {self.context_size * 32 * 2}\n'
+            for reg in vector_regs:
+                code += f'vle32.v v{reg}, {reg<<5}(x{free_regs[0]})\n'
+        return code
+
+    def store_registers(self, free_regs, scalar_regs=None, float_regs=None, vector_regs=None):
+        assert(len(free_regs)==2)
+        code = f"li x{free_regs[0]}, {self.register_context_addr}\n"
+        code += f'muli x{free_regs[1]}, UTHREADID, {self.context_size}\n'
+        code += f'add x{free_regs[0]}, x{free_regs[0]}, x{free_regs[1]}\n'
+        if scalar_regs:
+            for reg in scalar_regs:
+                code += f'sd x{reg}, {reg<<3}(x{free_regs[0]})\n'
+        if float_regs:
+            code += f'addi x{free_regs[0]}, x{free_regs[0]}, {self.context_size * 32}\n'
+            for reg in float_regs:
+                code += f'sd f{reg}, {reg<<3}(x{free_regs[0]})\n'
+        if vector_regs:
+            code += f'addi x{free_regs[0]}, x{free_regs[0]}, {self.context_size * 32}\n' if float_regs else f'addi x{free_regs[0]}, x{free_regs[0]}, {self.context_size * 32 * 2}\n'
+            for reg in vector_regs:
+                code += f'vse32.v v{reg}, {reg<<5}(x{free_regs[0]})\n'
+        return code
+
 class MultipleKernel(NdpKernel):
     def __init__(self, repeat=1) -> None:
         super().__init__()
         self.repeat = repeat
         self.base_offset = None
         self.input_addrs_offsets = []
-    
+
     def get_kernel_info(self):
         smem_size = self.smem_size + 8 * len(self.input_addrs)
         result = ''
@@ -90,14 +126,14 @@ class MultipleKernel(NdpKernel):
                     result += f' 0x{addr + itr * offset:x}'
             result += '\n'
         return result
-    
+
 
 def pad_n(np_array, n=8, constant_values=0):
     if len(np_array) % n == 0:
         return np_array
     else:
         return np.pad(np_array, (0, 8 - len(np_array) % 8), 'constant', constant_values=constant_values)
-    
+
 def pad16(np_array, constant_values=0):
     if len(np_array) % 16 == 0:
         return np_array
