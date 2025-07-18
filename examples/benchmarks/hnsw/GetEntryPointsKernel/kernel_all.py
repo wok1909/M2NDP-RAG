@@ -43,6 +43,11 @@ class GetEntryPointsKernel(NdpKernel):
         self.entry_distance_addr = 0x1000000000300000
         self.candidate_distance_addr = 0x1000000000400000
         self.partial_sum_addr = 0x1000000000500000
+        self.update_addr = 0x1000000000600000
+
+        # Register context
+        self.register_context_addr = 0x1000000000a00000
+        self.context_size = 0x20 * configs.data_size * 2
 
         self.sync = 0
         self.kernel_id = 0
@@ -86,7 +91,7 @@ class GetEntryPointsKernel(NdpKernel):
         self.bound = len(qdata_array) * configs.data_size
         self.input_addrs = [self.qdata_addr, self.target_data_addr, self.target_nodes_addr, self.graph_addr, self.degree_addr,
                             self.visited_addr, self.visited_list_addr, self.entries_addr, self.acc_visited_cnt_addr, self.graph_info_addr,
-                            self.qdata_sapd_addr, self.entry_distance_addr, self.partial_sum_addr, self.candidate_distance_addr, self.visited_cnt_addr]
+                            self.qdata_sapd_addr, self.entry_distance_addr, self.partial_sum_addr, self.update_addr, self.candidate_distance_addr, self.visited_cnt_addr]
 
     def make_kernel(self):
         packet_size = configs.packet_size
@@ -119,21 +124,20 @@ class GetEntryPointsKernel(NdpKernel):
 
         # Query loop when num_query bigger than 32
         template += f'li x12, 0\n'
+
+        template += self.store_registers(free_regs=[11, 13], scalar_regs=[3, 4, 5, 6, 7, 8, 9, 10, 12])
         template += f'.LOOP0\n'
+        template += self.load_registers(free_regs=[16, 17], scalar_regs=[3, 4, 5, 6, 8, 9, 10, 12])
 
         # Skip if query index is out of range
         template += f'muli x13, x12, {32}\n'
         template += f'add x13, x13, NDPID\n'
         template += f'bge x13, x4, .SKIP0\n'
 
-        # Store query to spad
+        # Load query data
         template += f'ld x14, {self.get_arg_offset(self.qdata_addr)}(x1)\n'
-        template += f'ld x15, {self.get_arg_offset(self.qdata_sapd_addr)}(x1)\n'
         template += f'add x14, x14, x2\n' # query data address for current uthread
         template += f'vle32.v v1, (x14)\n'
-        template += f'muli x16, UTHREADID, {packet_size}\n'
-        template += f'add x15, x15, x16\n'  # qdata address
-        template += f'vse32.v v1, (x15)\n'  # Store qdata to spad
 
         # Set visited variables
         template += f'mul x14, x5, x13\n'
@@ -149,6 +153,14 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'muli x16, x13, {data_size}\n'
         template += f'add x16, x14, x16\n'
         template += f'lw x3, (x16)\n'  # entryid
+
+        template += f'ld x11, {self.get_arg_offset(self.entries_addr)}(x1)\n'
+        template += f'muli 16, x13, {data_size}\n'
+        template += f'add 16, x11, 16\n'
+        template += f'sw x3, (16)\n'
+
+        template += f'ld x11, {self.get_arg_offset(self.update_addr)}(x1)\n'
+        template += f'sw x3, (x11)\n'
 
         # Initialize visited_cnt to 0
         template += f'bnez UTHREADID, .SKIP1\n'
@@ -179,9 +191,12 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'add x19, x19, x21\n'  # partial sum address
         template += f'sw x20, (x19)\n'  # store partial distance output
 
+        template += self.store_registers(free_regs=[20, 21], scalar_regs=[3, 9, 10, 11, 13, 16, 17, 19], vector_regs=[1]) # v
         ################ SYNC1 #################
         template += f'KERNELBODY:\n'  # KERNELBODY1
         template += f'bgt UTHREADID, x0, .SKIP2\n'
+
+        template += self.load_registers(free_regs=[18, 21], scalar_regs=[19])  # v
 
         # Global distance calculation
         template += f'li x20, 0\n'  # accumulator
@@ -192,6 +207,7 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'.LOOP1\n'
         template += f'vle32.v v3, (x18)\n'
         template += f'vmslt.vx v4, v2, x21\n'
+        template += f'vmv.v.x v0, x0\n'
         template += f'vredsum.vs v5, v3, v0, v4\n'
         template += f'vmv.x.s x22, v5\n'
         template += f'add x20, x20, x22\n'
@@ -200,14 +216,20 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'bgt x21, x0, .LOOP1\n'
 
         # Store entry distance to scratchpad
+        template += f'li x1, {configs.spad_addr}\n'
         template += f'ld x21, {self.get_arg_offset(self.entry_distance_addr)}(x1)\n'
         template += f'sw x20, (x21)\n'
 
+        template += f'ld x11, {self.get_arg_offset(self.update_addr)}(x1)\n'
+        template += f'sw x20, 8(x11)\n'
+
+        template += self.store_registers(free_regs=[11, 18], scalar_regs=[19]) # v
         ################ SYNC2 #################
         template += f'KERNELBODY:\n'  # KERNELBODY2
         template += f'.SKIP2\n'
 
         # Get entry distance address
+        template += f'li x1, {configs.spad_addr}\n'
         template += f'ld x18, {self.get_arg_offset(self.entry_distance_addr)}(x1)\n'
         template += f'lw x20, (x18)\n'  # entry distance
 
@@ -216,18 +238,34 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'ld x22, {self.get_arg_offset(self.graph_addr)}(x1)\n'
 
         # Loop for finding entry point
+        template += self.store_registers(free_regs=[25, 27], scalar_regs=[18, 21, 22])
         template += f'.LOOP2\n'
+        template += self.load_registers(free_regs=[18, 22], scalar_regs=[3, 7, 13, 21])
+
+        template += f'li x1, {configs.spad_addr}\n'
+        template += f'ld x18, {self.get_arg_offset(self.entries_addr)}(x1)\n'
+        template += f'muli x22, x13, {data_size}\n'
+        template += f'add x22, x18, x22\n'
+        template += f'lw x3, (x22)\n'
+        template += f'TEST.v.x x3\n'
+
         template += f'muli x23, x3, {data_size}\n'
         template += f'add x23, x21, x23\n'
+
         template += f'lw x24, (x23)\n'  # degree of entry
         template += f'mul x23, x7, x3\n' # starting idx = max_m * entry_id
         template += f'add x24, x23, x24\n'  # end idx = starting idx + degree
 
         # Initialize updated to true
-        template += f'li x25, 0\n'
+        template += f'li x25, 0\n'    # No need?
+        template += f'li x1, {configs.spad_addr}\n'
+        template += f'ld x16, {self.get_arg_offset(self.update_addr)}(x1)\n'
+        template += f'sw x25, 4(x16)\n'
 
+        template += self.store_registers(free_regs=[16, 18], scalar_regs=[20, 23, 24, 25])
         # neighbor search
         template += f'.LOOP3\n'
+        template += self.load_registers(free_regs=[16, 18], scalar_regs=[9, 22, 23, 24])
         template += f'bge x23, x24, .SKIP6\n'
         template += f'muli x26, x23, {data_size}\n' # starting index
         template += f'add x26, x22, x26\n'
@@ -237,10 +275,13 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'add x26, x9, x26\n'
         template += f'lw x28, (x26)\n'  # visited
         template += f'addi x23, x23, 1\n' # increase idx
+        template += self.store_registers(free_regs=[16, 18], scalar_regs=[23])
         template += f'bnez x28, .LOOP3\n'  # branch if visited
 
+        template += self.store_registers(free_regs=[16, 18], scalar_regs=[23, 26, 27])
         ################ SYNC3 #################
         template += 'KERNELBODY:\n' # KERNELBODY3
+        template += self.load_registers(free_regs=[18, 21], scalar_regs=[6, 8, 10, 11, 16, 17, 19, 26, 27], vector_regs=[1])
 
         # set visited and visited_list
         template += f'bnez UTHREADID, .SKIP3\n'
@@ -249,7 +290,7 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'sw x28, (x26)\n'  # store visited
         template += f'muli x29, x11, {data_size}\n'
         template += f'add x29, x10, x29\n'
-        template += f'sw x27, (x29)\n'  # visited_list[visited_cnt] = cnadid
+        template += f'sw x27, (x29)\n'  # visited_list[visited_cnt] = candid
         template += f'addi x11, x11, 1\n' # increase visited_cnt
         template += f'.SKIP3\n'
 
@@ -272,9 +313,11 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'vmv.x.s x18, v5\n'  # partial distance output
         template += f'sw x18, (x19)\n'  # store partial distance output
 
+        template += self.store_registers(free_regs=[15, 21], scalar_regs=[11])
         ################ SYNC4 #################
         template += 'KERNELBODY:\n' # KERNELBODY4
         template += f'bgt UTHREADID, x0, .SKIP4\n'
+        template += self.load_registers(free_regs=[18, 21], scalar_regs=[19, 27])
 
         # Global distance calculation
         template += f'li x5, 0\n'  # accumulator (dist)
@@ -285,6 +328,7 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'.LOOP4\n'
         template += f'vle32.v v3, (x15)\n'
         template += f'vmslt.vx v4, v2, x26\n'
+        template += f'vmv.v.x v0, x0\n'
         template += f'vredsum.vs v5, v3, v0, v4\n'
         template += f'vmv.x.s x28, v5\n'
         template += f'add x5, x5, x28\n'
@@ -293,30 +337,53 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'bgt x26, x0, .LOOP4\n'
 
         # Store global distance of candidate
+        template += f'li x1, {configs.spad_addr}\n'
         template += f'ld x26, {self.get_arg_offset(self.candidate_distance_addr)}(x1)\n'
         template += f'sw x5, (x26)\n'
-
         template += f'.SKIP4\n'
+
+        # template += self.store_registers(free_regs=[11, 12], scalar_regs=[5])
+        # Need to store: x20, x27
         ################ SYNC5 #################
         template += 'KERNELBODY:\n' # KERNELBODY5
-
+        template += self.load_registers(free_regs=[18, 21], scalar_regs=[3, 20, 27])
+        template += f'li x1, {configs.spad_addr}\n'
         template += f'ld x26, {self.get_arg_offset(self.candidate_distance_addr)}(x1)\n'
         template += f'lw x5, (x26)\n'
 
+        template += f'ld x17, {self.get_arg_offset(self.update_addr)}(x1)\n'
+        template += f'lw x20, 8(x17)\n'
+
         # Update entry_dist, entryid and updated if dist < entry_dist
         template += f'bge x5, x20, .SKIP5\n'
+        template += f'TEST.v.x x3\n'
+        template += f'TEST.v.x x20\n'
+        template += f'TEST.v.x x27\n'
+        template += f'TEST.v.x x5\n'
+        # template += f'ld x17, {self.get_arg_offset(self.update_addr)}(x1)\n'
         template += f'addi x20, x5, 0\n'  # entry_dist = dist
         template += f'addi x3, x27, 0\n' # entryid = candid
         template += f'li x25, 1\n'  # updated =  ture
+        template += f'sw x3, (x17)\n'
+        template += f'sw x25, 4(x17)\n'
+        template += f'sw x20, 8(x17)\n'
         template += f'.SKIP5\n'
 
         ################ SYNC6 #################
         template += 'KERNELBODY:\n' # KERNELBODY6
         # branch to .LOOP3 if entry has more neighbors
+        template += self.load_registers(free_regs=[18, 21], scalar_regs=[23, 24])
+
         template += f'blt x23, x24, .LOOP3\n'
 
         template += f'.SKIP6\n'
+        template += self.load_registers(free_regs=[18, 21], scalar_regs=[11, 13, 25])
+        template += f'li x1, {configs.spad_addr}\n'
+        template += f'ld x17, {self.get_arg_offset(self.update_addr)}(x1)\n'
+        template += f'lw x3, (x17)\n'
+        template += f'lw x25, 4(x17)\n'
         # Store entry
+        template += f'li x1, {configs.spad_addr}\n'
         template += f'bgt UTHREADID, x0, .SKIP7\n'
         template += f'ld x23, {self.get_arg_offset(self.entries_addr)}(x1)\n'
         template += f'muli x27, x13, {data_size}\n'
@@ -326,6 +393,8 @@ class GetEntryPointsKernel(NdpKernel):
 
         # Branch to .LOOP2 if updated
         template += f'bnez x25, .LOOP2\n'
+
+        template += f'TEST.v.x x3\n'
 
         # Store visited_cnt to spad and acc_visited_cnt update
         template += f'ld x21, {self.get_arg_offset(self.visited_cnt_addr)}(x1)\n'
@@ -339,10 +408,13 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'sw x27, (x25)\n'
         template += f'.SKIP8\n'
 
+        # template += self.store_registers(free_regs=[11, 12], scalar_regs=[])
         ################ SYNC7 #################
         template += 'KERNELBODY:\n' # KERNELBODY7
+        template += self.load_registers(free_regs=[18, 21], scalar_regs=[9, 10, 12])
 
         # visited update
+        template += f'li x1, {configs.spad_addr}\n'
         template += f'ld x21, {self.get_arg_offset(self.visited_cnt_addr)}(x1)\n'
         template += f'lw x11, (x21)\n'  # load visited_cnt
         template += f'addi x28, UTHREADID, 0\n'
@@ -360,6 +432,7 @@ class GetEntryPointsKernel(NdpKernel):
 
         # Increment query idx and jump back
         template += f'addi x12, x12, 1\n'
+        template += self.store_registers(free_regs=[18, 19], scalar_regs=[12])
         template += f'j .LOOP0\n'
 
         ################ SYNC8 #################
