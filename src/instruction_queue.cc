@@ -83,6 +83,7 @@ Context InstructionQueue::fetch_context() {
                            ->insts[(*m_inst_columns_iter)->csr.pc]
                            .CheckBranchOp();
   context.max_pc = (*m_inst_columns_iter)->insts.size() - 1;
+  context.uthread_sz = (*m_inst_columns_iter)->req->size;
   context.exit = false;
   (*m_inst_columns_iter)->feteched_last = context.last_inst;
   return context;

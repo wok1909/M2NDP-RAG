@@ -12,7 +12,7 @@ import configs
 from ..hnsw_utils import *
 
 DEGUG = False
-LEVEL = 1
+LEVEL = 3
 DIST_TYPE = 0
 VISITED_LIST_SIZE = 8192
 
@@ -37,22 +37,20 @@ class GetEntryPointsKernel(NdpKernel):
         self.acc_visited_cnt_addr = 0x880000000000
         self.graph_info_addr = 0x890000000000
 
-        # Scratchpad
-        self.qdata_sapd_addr = 0x1000000000100000
-        self.visited_cnt_addr = 0x1000000000200000
-        self.entry_distance_addr = 0x1000000000300000
-        self.candidate_distance_addr = 0x1000000000400000
-        self.partial_sum_addr = 0x1000000000500000
-        self.update_addr = 0x1000000000600000
+        self.visited_cnt_addr = 0x1000000000000080
+        self.entry_distance_addr = 0x1000000000000100
+        self.candidate_distance_addr = 0x1000000000000200
+        self.partial_sum_addr = 0x1000000000000300
+        self.update_addr = 0x1000000000000400
 
         # Register context
-        self.register_context_addr = 0x1000000000a00000
+        self.register_context_addr = 0x1000000000000500
         self.context_size = 0x20 * configs.data_size * 2
 
         self.sync = 0
         self.kernel_id = 0
         self.kernel_name = 'hnsw_GetEntryPointsKernel'
-        self.smem_size = 0x1000000
+        self.smem_size = 0x1df00
 
         # graph info
         self.graph_file = os.path.join(os.path.dirname(__file__), f'../data/graph.txt')
@@ -91,7 +89,7 @@ class GetEntryPointsKernel(NdpKernel):
         self.bound = len(qdata_array) * configs.data_size
         self.input_addrs = [self.qdata_addr, self.target_data_addr, self.target_nodes_addr, self.graph_addr, self.degree_addr,
                             self.visited_addr, self.visited_list_addr, self.entries_addr, self.acc_visited_cnt_addr, self.graph_info_addr,
-                            self.qdata_sapd_addr, self.entry_distance_addr, self.partial_sum_addr, self.update_addr, self.candidate_distance_addr, self.visited_cnt_addr]
+                            self.entry_distance_addr, self.partial_sum_addr, self.update_addr, self.candidate_distance_addr, self.visited_cnt_addr]
 
     def make_kernel(self):
         packet_size = configs.packet_size
@@ -196,13 +194,13 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'KERNELBODY:\n'  # KERNELBODY1
         template += f'bgt UTHREADID, x0, .SKIP2\n'
 
-        template += self.load_registers(free_regs=[18, 21], scalar_regs=[19])  # v
+        template += self.load_registers(free_regs=[18, 21], scalar_regs=[19])
 
         # Global distance calculation
         template += f'li x20, 0\n'  # accumulator
         template += f'addi x21, UTHREADSZ, 0\n'  # counter
+        template += f'TEST.v.x UTHREADSZ\n'
         template += f'vid.v v2\n' # v2 = [0, 1, 2, 3, 4, 5, 6, 7]
-
         template += f'addi x18, x19, 0\n'
         template += f'.LOOP1\n'
         template += f'vle32.v v3, (x18)\n'
@@ -247,7 +245,6 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'muli x22, x13, {data_size}\n'
         template += f'add x22, x18, x22\n'
         template += f'lw x3, (x22)\n'
-        template += f'TEST.v.x x3\n'
 
         template += f'muli x23, x3, {data_size}\n'
         template += f'add x23, x21, x23\n'
@@ -280,7 +277,7 @@ class GetEntryPointsKernel(NdpKernel):
 
         template += self.store_registers(free_regs=[16, 18], scalar_regs=[23, 26, 27])
         ################ SYNC3 #################
-        template += 'KERNELBODY:\n' # KERNELBODY3
+        template += f'KERNELBODY:\n' # KERNELBODY3
         template += self.load_registers(free_regs=[18, 21], scalar_regs=[6, 8, 10, 11, 16, 17, 19, 26, 27], vector_regs=[1])
 
         # set visited and visited_list
@@ -315,7 +312,7 @@ class GetEntryPointsKernel(NdpKernel):
 
         template += self.store_registers(free_regs=[15, 21], scalar_regs=[11])
         ################ SYNC4 #################
-        template += 'KERNELBODY:\n' # KERNELBODY4
+        template += f'KERNELBODY:\n' # KERNELBODY4
         template += f'bgt UTHREADID, x0, .SKIP4\n'
         template += self.load_registers(free_regs=[18, 21], scalar_regs=[19, 27])
 
@@ -345,7 +342,7 @@ class GetEntryPointsKernel(NdpKernel):
         # template += self.store_registers(free_regs=[11, 12], scalar_regs=[5])
         # Need to store: x20, x27
         ################ SYNC5 #################
-        template += 'KERNELBODY:\n' # KERNELBODY5
+        template += f'KERNELBODY:\n' # KERNELBODY5
         template += self.load_registers(free_regs=[18, 21], scalar_regs=[3, 20, 27])
         template += f'li x1, {configs.spad_addr}\n'
         template += f'ld x26, {self.get_arg_offset(self.candidate_distance_addr)}(x1)\n'
@@ -356,10 +353,6 @@ class GetEntryPointsKernel(NdpKernel):
 
         # Update entry_dist, entryid and updated if dist < entry_dist
         template += f'bge x5, x20, .SKIP5\n'
-        template += f'TEST.v.x x3\n'
-        template += f'TEST.v.x x20\n'
-        template += f'TEST.v.x x27\n'
-        template += f'TEST.v.x x5\n'
         # template += f'ld x17, {self.get_arg_offset(self.update_addr)}(x1)\n'
         template += f'addi x20, x5, 0\n'  # entry_dist = dist
         template += f'addi x3, x27, 0\n' # entryid = candid
@@ -370,7 +363,7 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'.SKIP5\n'
 
         ################ SYNC6 #################
-        template += 'KERNELBODY:\n' # KERNELBODY6
+        template += f'KERNELBODY:\n' # KERNELBODY6
         # branch to .LOOP3 if entry has more neighbors
         template += self.load_registers(free_regs=[18, 21], scalar_regs=[23, 24])
 
@@ -394,8 +387,6 @@ class GetEntryPointsKernel(NdpKernel):
         # Branch to .LOOP2 if updated
         template += f'bnez x25, .LOOP2\n'
 
-        template += f'TEST.v.x x3\n'
-
         # Store visited_cnt to spad and acc_visited_cnt update
         template += f'ld x21, {self.get_arg_offset(self.visited_cnt_addr)}(x1)\n'
         template += f'bgt UTHREADID, x0, .SKIP8\n'
@@ -410,7 +401,7 @@ class GetEntryPointsKernel(NdpKernel):
 
         # template += self.store_registers(free_regs=[11, 12], scalar_regs=[])
         ################ SYNC7 #################
-        template += 'KERNELBODY:\n' # KERNELBODY7
+        template += f'KERNELBODY:\n' # KERNELBODY7
         template += self.load_registers(free_regs=[18, 21], scalar_regs=[9, 10, 12])
 
         # visited update
@@ -436,7 +427,7 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'j .LOOP0\n'
 
         ################ SYNC8 #################
-        template += 'KERNELBODY:\n' # KERNELBODY8
+        template += f'KERNELBODY:\n' # KERNELBODY8
         template += f'.SKIP0\n'
 
         return template

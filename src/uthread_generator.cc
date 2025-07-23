@@ -191,6 +191,7 @@ void UThreadGenerator::increase_count(Context context) {
   m_count_requests[launch_id] += 1;
 
   if (context.request_info->type == KERNEL_BODY &&
+      context.kernel_body_id == context.request_info->kernel_body_id &&
       context.kernel_body_id == m_num_kernel_bodies[m_launch_infos[launch_id].kernel_id] - 1)
     m_launch_infos[launch_id].uthread_finish_counter++;
 }

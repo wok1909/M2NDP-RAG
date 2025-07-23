@@ -75,7 +75,7 @@ int SubCore::ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
   std::deque<NdpInstruction> renamed = m_register_unit->Convert(
     m_ndp_kernel->kernel_body_insts[kernel_body_id], info->id, info);
   insts_list.at(info->ndp_req_id).at(kernel_body_id) = renamed;
-  // printf("<<<<< UThread %d running KB %d >>>>>\n", info->ndp_req_id, kernel_body_id);
+  printf("<<<<< UThread %d running KB %d >>>>>\n", info->ndp_req_id, kernel_body_id);
   int result = ExecuteInsts_Array(spad_map, insts_list.at(info->ndp_req_id), info, m_ndp_kernel->loop_map, kernel_body_id, uthread_sz);
   // printf("Result KB: %d\n", result);
   m_register_unit->FreeRegs(info->id);
@@ -270,7 +270,9 @@ void SubCore::instruction_queue_allocate() {
     Context temp_context;
     temp_context.ndp_id = m_id;
     temp_context.sub_core_id = -1; //To indicate this is empty inst context
+    temp_context.uthread_id = inst->req->ndp_req_id;
     temp_context.request_info = inst->req;
+    temp_context.kernel_body_id = inst->req->kernel_body_id;
 
     m_finished_contexts->push(temp_context);
   } else {
