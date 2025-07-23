@@ -148,6 +148,9 @@ std::deque<NdpInstruction> RegisterUnit::Convert(
             else if (inst.opcode == VFIRST) {
               renamed.dest = DestRenameX(key, inst);
               renamed.src[0] = LookUpV(key, inst.src[0]);
+            } else if (inst.opcode == VMNOT) {
+              renamed.dest = DestRenameV(key, inst);
+              renamed.src[0] = LookUpV(key, inst.src[0]);
             }
             break;
           case OperandType::X_S:
@@ -290,6 +293,7 @@ std::deque<NdpInstruction> RegisterUnit::Convert(
           case Opcode::SLLI:
           case Opcode::SRLI:
           case Opcode::ORI:
+          case Opcode::SEQZ:
             renamed.src[0] = LookUpX(key, inst.src[0]);
             renamed.dest = DestRenameX(key, inst);
             break;

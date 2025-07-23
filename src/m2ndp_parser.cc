@@ -232,6 +232,10 @@ NdpInstruction ParseNdpInstruction(std::string line) {
       inst.src[0] = GetRegValue(vs1);
       inst.src[1] = GetRegValue(vs2);
     }
+  } else if (inst.opcode == Opcode::VMNOT) {
+    if (inst.operand_type == OperandType::M) {
+      inst.src[0] = GetRegValue(src);
+    }
   } else if (inst.opcode == Opcode::VLE8 || inst.opcode == Opcode::VSE8 ||
              inst.opcode == Opcode::VLE16 || inst.opcode == Opcode::VSE16 ||
              inst.opcode == Opcode::VLE32 || inst.opcode == Opcode::VSE32 ||
@@ -420,6 +424,8 @@ NdpInstruction ParseNdpInstruction(std::string line) {
     std::string imm = src.substr(src.find(',') + 1);
     inst.src[0] = GetRegValue(vs1);
     inst.src[1] = std::stoll(imm, NULL);
+  } else if (inst.opcode == Opcode::SEQZ) {
+    inst.src[0] = GetRegValue(src);
   } else if (inst.opcode == Opcode::VSLIDE1DOWN ||
              inst.opcode == Opcode::VSLIDE1UP) {
     if (inst.operand_type == OperandType::VX) {
