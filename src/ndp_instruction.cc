@@ -8,7 +8,7 @@ namespace NDPSim {
 typedef robin_hood::unordered_flat_set<Opcode> OpcodeSet;
 static const OpcodeSet float_ops = {
     FADD,    FSUB,   FDIV,   FMUL,   FMV,    FLW,       FSW,
-    VFADD,   VFSUB,  VFRSUB, VFMUL,  VFWMUL, VFDIV,     VFMACC, 
+    VFADD,   VFSUB,  VFRSUB, VFMUL,  VFWMUL, VFDIV,     VFMACC,
     VFWMACC, VFNCVT, VFCVT,  VFWCVT, VFMV,   VFREDOMAX, VFREDOSUM,
     FEXP,    VFEXP,  VFWSUB, VFMSUB, VFSQRT};
 
@@ -23,7 +23,7 @@ static const OpcodeSet vector_ops = {
     VLUXEI64, VSUXEI64, VLSSEG, VMSET, VMSEQ, VMSNE, VMSLT, VMSGT, VMSLE,
     VMSGE,  // Vector Mask
             // Ops
-    VMAND, VMOR, VCOMPRESS, VNADD, VSLL, VID, VFEXP, VFSGNJ, VFSGNJN, VFSGNJX,  VFWSUB, VFMSUB, VFSQRT};
+    VMAND, VMOR, VMNOT, VCOMPRESS, VNADD, VSLL, VID, VFEXP, VFSGNJ, VFSGNJN, VFSGNJX,  VFWSUB, VFMSUB, VFSQRT};
 static const OpcodeSet narrowing_ops = {VFNCVT};
 static const OpcodeSet widening_ops = {VFWMACC, VFWCVT, VFWSUB, VFWMUL, VWREDOSUM, VWREDOMAX};
 static const OpcodeSet amo_ops = {
@@ -467,7 +467,7 @@ void NdpInstruction::ExecuteScalar(Context& context) {
   } else if (opcode == FAMOADD) {
     int64_t addr = context.register_map->ReadXreg(src[2], context);
     VectorData vd(context);
-    
+
     int idx = 0;
 
     if (CheckMemoryMap(context, addr)) {
@@ -494,7 +494,7 @@ void NdpInstruction::ExecuteScalar(Context& context) {
     context.register_map->WriteFreg(dest, value, context);
   } else if (opcode == FAMOADDH) {
     int64_t addr = context.register_map->ReadXreg(src[2], context);
-    VectorData vd(context);    
+    VectorData vd(context);
     int idx = 0;
     if (CheckMemoryMap(context, addr)) {
       vd = MemoryMapLoad(context, addr);
@@ -602,7 +602,7 @@ void NdpInstruction::ExecuteVector(Context& context) {
     }
     context.register_map->WriteVreg(dest, vd, context);
   } else if (opcode == VFWSUB) {
-    VectorData vs1 = context.register_map->ReadVreg(src[0], context);    
+    VectorData vs1 = context.register_map->ReadVreg(src[0], context);
     assert(vs1.GetType() == FLOAT16);
     VectorData temp(context);
     temp.SetVectorDoubleReg();
@@ -808,7 +808,7 @@ void NdpInstruction::ExecuteVector(Context& context) {
       vd = vs1;
       context.register_map->WriteVreg(dest, vd, context);
     } else if (operand_type == V_I) {
-      VectorData vd(context); 
+      VectorData vd(context);
       if(context.register_map->CheckExistRenameVreg(dest) && src[1] != -1)
         vd = context.register_map->ReadVreg(dest, context);
       // if (context.register_map->CheckExistRenameVreg(dest)) // TODO : check
@@ -1136,7 +1136,19 @@ void NdpInstruction::ExecuteVector(Context& context) {
       throw std::runtime_error("VMAND must use mm operand_type");
     vd.SetType(VMASK);
     context.register_map->WriteVreg(dest, vd, context);
+  } else if (opcode == VMNOT) {
+    VectorData vs1 = context.register_map->ReadVreg(src[0], context);
+    VectorData vd(context);
+    if (operand_type == M) {
+      for (int i = context.csr->vstart; i < vd.GetVlen(); i++) {
+        vd.SetVmask((!vs1.GetVmaskData(i)), i);
+      }
+    } else
+      throw std::runtime_error("VMNOT must use m operand_type");
+    vd.SetType(VMASK);
+    context.register_map->WriteVreg(dest, vd, context);
   } else if (opcode == VAND) {
+    printf("vs1\n");
     VectorData vs1 = context.register_map->ReadVreg(src[0], context);
     VectorData vd(context);
     if (operand_type == VV) {
@@ -1144,7 +1156,7 @@ void NdpInstruction::ExecuteVector(Context& context) {
       for (int i = context.csr->vstart; i < vd.GetVlen(); i++) {
         if (vs1.GetType() == INT32) {
           vd.SetData(
-              (int32_t)(vs1.GetIntData(i) & vs2.GetIntData(i)), i);          
+              (int32_t)(vs1.GetIntData(i) & vs2.GetIntData(i)), i);
         } else if (vs1.GetType() == INT64) {
           vd.SetData((int64_t)(vs1.GetLongData(i) & vs2.GetLongData(i)), i);
         } else if (vs1.GetType() == FLOAT32) {
@@ -1153,7 +1165,6 @@ void NdpInstruction::ExecuteVector(Context& context) {
           vd.SetData((bool)(vs1.GetBoolData(i) & vs2.GetBoolData(i)), i);
         }
       }
-      
     } else if (operand_type == VI) {
       int32_t x2 = src[1];
       for (int i = context.csr->vstart; i < vd.GetVlen(); i++) {

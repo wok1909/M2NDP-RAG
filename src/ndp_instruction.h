@@ -126,6 +126,7 @@ enum Opcode {
   VMSGE,
   VMAND,
   VMOR,
+  VMNOT,
   VCOMPRESS,  // Vectore Compress with VM
   VAND,       //
   VOR,        //
@@ -279,6 +280,7 @@ static std::map<std::string, Opcode> opcode_type_map = {
     {"vmsge", VMSGE},
     {"vmand", VMAND},
     {"vmor", VMOR},
+    {"vmnot", VMNOT},
     {"vcompress", VCOMPRESS},
     {"vand", VAND},
     {"vor", VOR},
