@@ -26,7 +26,8 @@ RegisterUnit::RegisterUnit(int num_xreg, int num_freg, int num_vreg) {
 }
 
 bool RegisterUnit::RenameFull(InstColumn* inst_column) {
-  return (inst_column->xregs > m_free_xregs.size() ||
+  // printf("PacketID: %d, NeedXRegs: %d\n", inst_column->req->id, inst_column->xregs + 2);
+  return (inst_column->xregs + 2 > m_free_xregs.size() ||
           inst_column->fregs > m_free_fregs.size() ||
           inst_column->vregs > m_free_vregs.size());
 }
@@ -55,7 +56,7 @@ std::deque<NdpInstruction> RegisterUnit::Convert(
     std::deque<NdpInstruction> insts, int packet_id, RequestInfo* req) {
   std::deque<NdpInstruction> renamed_insts;
   RegisterMapKey key = packet_id;
-
+  // printf("PacketID: %d, Convert0: %d\n", req->id, m_free_xregs.size());
   //Initialize x1, and x2
   int x1_reg = REG_X_BASE + 1; // ADDR
   int x2_reg = REG_X_BASE + 2; // OFFSET
@@ -345,6 +346,10 @@ void RegisterUnit::FreeRegs(int packet_id) {
   RegisterBinding mapping_to_free = m_xreg_mapping[key];
   for (auto it : mapping_to_free) {
     int reg = it.second;
+    if (reg < REG_PX_BASE || reg >= REG_PX_BASE + m_num_xregs){
+      printf("Register free error... %d\n", reg);
+      assert(0);
+    }
     m_free_xregs.push_back(reg);
   }
   m_xreg_mapping.erase(key);
@@ -406,6 +411,10 @@ int RegisterUnit::DestRenameX(RegisterMapKey key, NdpInstruction inst) {
     return m_xreg_mapping[key][inst.dest];
   }
   int result = m_free_xregs.front();
+  if (result < REG_PX_BASE || result >= REG_PX_BASE + m_num_xregs) {
+    printf("Register dest error.. %d\n", result);
+    assert(0);
+  }
   m_free_xregs.pop_front();
   m_xreg_mapping[key][inst.dest] = result;
   return result;

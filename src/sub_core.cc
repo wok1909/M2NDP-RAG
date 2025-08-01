@@ -75,9 +75,12 @@ int SubCore::ExecuteKernelBody(MemoryMap* spad_map, RequestInfo* info,
   std::deque<NdpInstruction> renamed = m_register_unit->Convert(
     m_ndp_kernel->kernel_body_insts[kernel_body_id], info->id, info);
   insts_list.at(info->ndp_req_id).at(kernel_body_id) = renamed;
-  printf("<<<<< UThread %d running KB %d >>>>>\n", info->ndp_req_id, kernel_body_id);
+  // printf("<<<<< UThread %d running KB %d >>>>>\n", info->ndp_req_id, kernel_body_id);
   int result = ExecuteInsts_Array(spad_map, insts_list.at(info->ndp_req_id), info, m_ndp_kernel->loop_map, kernel_body_id, uthread_sz);
-  // printf("Result KB: %d\n", result);
+  // if (m_id == 0 && info->ndp_req_id == 0){
+  //   printf("UTHREAD %d: KB %d -> KB %d (pc: %d)\n", info->ndp_req_id, kernel_body_id, result, branch_idx.at(info->ndp_req_id));
+  // }
+
   m_register_unit->FreeRegs(info->id);
   return result;
 }
@@ -119,6 +122,7 @@ int SubCore::ExecuteInsts_Array(MemoryMap* spad_map,
   context.ndp_id = m_id;
   context.sub_core_id = m_sub_core_id;
   context.uthread_id = info->ndp_req_id;
+  context.kernel_body_id = kernel_body_id;
   context.csr = &csr;
   context.memory_map = m_memory_map;
   context.scratchpad_map = spad_map;
@@ -264,13 +268,14 @@ void SubCore::instruction_queue_allocate() {
     return;
   }
   m_register_unit->RenamePop();
-  if (inst->insts.empty()) {
+  if (inst->insts.empty() || inst->insts.size() <= inst->csr.pc) {
     //have to push to finished_contexts
     //Make temp context
     Context temp_context;
     temp_context.ndp_id = m_id;
-    temp_context.sub_core_id = -1; //To indicate this is empty inst context
+    temp_context.sub_core_id = m_sub_core_id;
     temp_context.uthread_id = inst->req->ndp_req_id;
+    temp_context.inst_col_id = -1;
     temp_context.request_info = inst->req;
     temp_context.kernel_body_id = inst->req->kernel_body_id;
 

@@ -16,6 +16,7 @@ class UThreadGenerator {
   UThreadGenerator(M2NDPConfig* config, int ndp_id,
                    fifo_pipeline<RequestInfo>* matched_requests);
   void launch(KernelLaunchInfo info);
+  void retrieve_kernel_body(int launch_id, int kernel_body_id, int uthread_id);
   void generate_kernel_body(int launch_id, int kernel_body_id, uint64_t pc);
 
   void register_kernel(NdpKernel* kernel);
@@ -47,6 +48,10 @@ class UThreadGenerator {
   std::map<int, std::deque<RequestInfo*>> m_generated_requests;
   std::map<int, int> m_total_requests;
   std::map<int, int> m_count_requests;
+
+  int m_next_kernel_body;
+  int m_previous_kernel_body_count;
+  std::deque<RequestInfo*> m_next_generated_requets;
 
   bool check_addr_match(uint64_t addr);
   int get_next_launch_id();

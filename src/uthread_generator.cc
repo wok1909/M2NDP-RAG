@@ -139,6 +139,29 @@ void UThreadGenerator::launch(KernelLaunchInfo kinfo) {
   check_kernel_launch();
 }
 
+void UThreadGenerator::retrieve_kernel_body(int launch_id, int kernel_body_id, int uthread_id) {
+  KernelLaunchInfo kinfo = m_launch_infos[launch_id];
+  uint64_t size = kinfo.size;
+  int uthread_sz = m_config->get_uthread_size(m_ndp_id, size);
+
+  if (m_next_kernel_body == -1)
+    m_next_kernel_body = kernel_body_id;
+
+  m_previous_kernel_body_count++;
+
+  if (m_previous_kernel_body_count == uthread_sz) {
+    m_next_kernel_body = -1;
+    m_previous_kernel_body_count = 0;
+
+    assert(m_next_generated_requets.size());
+    for (auto req : m_next_generated_requets) {
+      m_generated_requests[launch_id].push_back(req);
+      m_total_requests[launch_id]++;
+    }
+    m_next_generated_requets.clear();
+  }
+}
+
 void UThreadGenerator::generate_kernel_body(int launch_id, int kernel_body_id, uint64_t pc) {
   KernelLaunchInfo kinfo = m_launch_infos[launch_id];
   uint64_t base = kinfo.base_addr;
@@ -168,8 +191,7 @@ void UThreadGenerator::generate_kernel_body(int launch_id, int kernel_body_id, u
       info->kernel_body_id = kernel_body_id;
       info->pc = pc;
       info->scratchpad_map = m_launch_infos[kinfo.launch_id].scratchpad_map;
-      m_generated_requests[launch_id].push_back(info);
-      m_total_requests[launch_id]++;
+      m_next_generated_requets.push_back(info);
     }
   } else {
     RequestInfo* info = new RequestInfo();
@@ -181,8 +203,7 @@ void UThreadGenerator::generate_kernel_body(int launch_id, int kernel_body_id, u
     info->ndp_req_id = 0;
     info->type = FINALIZER;
     info->scratchpad_map = m_launch_infos[kinfo.launch_id].scratchpad_map;
-    m_generated_requests[launch_id].push_back(info);
-    m_total_requests[launch_id]++;
+    m_next_generated_requets.push_back(info);
   }
 }
 
