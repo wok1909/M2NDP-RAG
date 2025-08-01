@@ -22,10 +22,9 @@ ENTRY_INIT_ID = -1
 DISTANCE_INIT_VALUE = 999999
 
 class GetEntryPointsKernel(NdpKernel):
-    def __init__(self):
+    def __init__(self, dataset, n_query, topk_, num_level, ef_size):
         super().__init__()
-        self.INT32_SIZE = 4
-        self.INT_MAX = 99999999
+        data_path = os.path.join("/root/workspace/data", dataset, f'q{n_query}_top{topk_}_l{num_level}_ef{ef_size}')
 
         # DRAM
         self.qdata_addr = 0x800000000000
@@ -55,7 +54,7 @@ class GetEntryPointsKernel(NdpKernel):
         self.smem_size = 0x1df00
 
         # graph info
-        self.graph_file = os.path.join(os.path.dirname(__file__), f'../data/{DATASET}/graph.txt')
+        self.graph_file = os.path.join(os.path.dirname(__file__), f'{data_path}/text_cuhnsw.index')
         self.num_query, self.num_data, self.num_dims, self.max_level, self.max_m, self.max_m0, self.enter_point, graphs, queries, data = read_graph_file(self.graph_file)
         qdata_array = self.preprocess_with_data(queries, True)
         target_data_array = self.preprocess_with_data(data)
@@ -69,7 +68,7 @@ class GetEntryPointsKernel(NdpKernel):
         self.graph_info = pad8(np.array([self.num_query, len(target_nodes), self.num_dims, self.max_level, self.max_m, DIST_TYPE, VISITED_LIST_SIZE], dtype=np.int32))
 
         # input info
-        self.input_file = os.path.join(os.path.dirname(__file__), f'../data/{DATASET}/GetEntryPoints_{LEVEL}_start.txt')
+        self.input_file = os.path.join(os.path.dirname(__file__), f'{data_path}/GetEntryPoints_{LEVEL}_start.txt')
         graph_level, entries, visited, visited_list, acc_visited_cnt = read_step1_file(self.input_file)
         assert(graph_level == LEVEL)
 
@@ -79,7 +78,7 @@ class GetEntryPointsKernel(NdpKernel):
         self.input_acc_visited_cnt = pad8(np.array(acc_visited_cnt, dtype=np.int32))
 
         # output info
-        self.output_file = os.path.join(os.path.dirname(__file__), f'../data/{DATASET}/GetEntryPoints_{LEVEL}_finish.txt')
+        self.output_file = os.path.join(os.path.dirname(__file__), f'{data_path}/GetEntryPoints_{LEVEL}_finish.txt')
         graph_level, entries, visited, visited_list, acc_visited_cnt = read_step1_file(self.output_file)
         assert(graph_level == LEVEL)
 
@@ -141,21 +140,25 @@ class GetEntryPointsKernel(NdpKernel):
 
         # Set visited variables
         template += f'mul x14, x5, x13\n'
-        template += f'muli x14, x14, {data_size}\n'
+        # template += f'muli x14, x14, {data_size}\n'
+        template += f'slli x14, x14, 2\n'
         template += f'add x9, x9, x14\n'  # visited
 
         template += f'mul x14, x8, x13\n'
-        template += f'muli x14, x14, {data_size}\n'
+        # template += f'muli x14, x14, {data_size}\n'
+        template += f'slli x14, x14, 2\n'
         template += f'add x10, x10, x14\n'  # visited_list
 
         # Load entryid
         template += f'ld x14, {self.get_arg_offset(self.entries_addr)}(x1)\n'
-        template += f'muli x16, x13, {data_size}\n'
+        # template += f'muli x16, x13, {data_size}\n'
+        template += f'slli x16, x13, 2\n'
         template += f'add x16, x14, x16\n'
         template += f'lw x3, (x16)\n'  # entryid
 
         template += f'ld x11, {self.get_arg_offset(self.entries_addr)}(x1)\n'
-        template += f'muli 16, x13, {data_size}\n'
+        # template += f'muli 16, x13, {data_size}\n'
+        template += f'slli 16, x13, 2\n'
         template += f'add 16, x11, 16\n'
         template += f'sw x3, (16)\n'
 
@@ -170,11 +173,13 @@ class GetEntryPointsKernel(NdpKernel):
         # Get entry data address
         template += f'ld x16, {self.get_arg_offset(self.target_nodes_addr)}(x1)\n'
         template += f'ld x17, {self.get_arg_offset(self.target_data_addr)}(x1)\n'
-        template += f'muli x18, x3, {data_size}\n'
+        # template += f'muli x18, x3, {data_size}\n'
+        template += f'slli x18, x3, 2\n'
         template += f'add x18, x16, x18\n'
         template += f'lw x14, (x18)\n'  # targete_nodes[entryid]
         template += f'mul x19, x6, x14\n'
-        template += f'muli x19, x19, {data_size}\n'
+        # template += f'muli x19, x19, {data_size}\n'
+        template += f'slli x19, x19, 2\n'
         template += f'add x18, x17, x19\n'  # dest_vec address
         template += f'muli x19, UTHREADID, {packet_size}\n'
         template += f'add x18, x18, x19\n'
@@ -187,7 +192,8 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'vmv.v.x v0, x0\n'
         template += f'vredsum.vs v5, v4, v0\n'
         template += f'vmv.x.s x20, v5\n'  # partial distance output
-        template += f'muli x21, UTHREADID, {data_size}\n'
+        # template += f'muli x21, UTHREADID, {data_size}\n'
+        template += f'slli x21, UTHREADID, 2\n'
         template += f'add x19, x19, x21\n'  # partial sum address
         template += f'sw x20, (x19)\n'  # store partial distance output
 
@@ -243,11 +249,13 @@ class GetEntryPointsKernel(NdpKernel):
 
         template += f'li x1, {configs.spad_addr}\n'
         template += f'ld x18, {self.get_arg_offset(self.entries_addr)}(x1)\n'
-        template += f'muli x22, x13, {data_size}\n'
+        # template += f'muli x22, x13, {data_size}\n'
+        template += f'slli x22, x13, 2\n'
         template += f'add x22, x18, x22\n'
         template += f'lw x3, (x22)\n'
 
-        template += f'muli x23, x3, {data_size}\n'
+        # template += f'muli x23, x3, {data_size}\n'
+        template += f'slli x23, x3, 2\n'
         template += f'add x23, x21, x23\n'
 
         template += f'lw x24, (x23)\n'  # degree of entry
@@ -265,11 +273,13 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'.LOOP3\n'
         template += self.load_registers(free_regs=[16, 18], scalar_regs=[9, 22, 23, 24])
         template += f'bge x23, x24, .SKIP6\n'
-        template += f'muli x26, x23, {data_size}\n' # starting index
+        # template += f'muli x26, x23, {data_size}\n' # starting index
+        template += f'slli x26, x23, 2\n'
         template += f'add x26, x22, x26\n'
         template += f'lw x27, (x26)\n'  # candid
 
-        template += f'muli x26, x27, {data_size}\n'
+        # template += f'muli x26, x27, {data_size}\n'
+        template += f'slli x26, x27, 2\n'
         template += f'add x26, x9, x26\n'
         template += f'lw x28, (x26)\n'  # visited
         template += f'addi x23, x23, 1\n' # increase idx
@@ -286,18 +296,21 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'bge x11, x8, .SKIP3\n'  # branch if visited_cnt >= visited_list_size
         template += f'li x28, 1\n'
         template += f'sw x28, (x26)\n'  # store visited
-        template += f'muli x29, x11, {data_size}\n'
+        # template += f'muli x29, x11, {data_size}\n'
+        template += f'slli x29, x11, 2\n'
         template += f'add x29, x10, x29\n'
         template += f'sw x27, (x29)\n'  # visited_list[visited_cnt] = candid
         template += f'addi x11, x11, 1\n' # increase visited_cnt
         template += f'.SKIP3\n'
 
         # Get candidate node address
-        template += f'muli x28, x27, {data_size}\n'
+        # template += f'muli x28, x27, {data_size}\n'
+        template += f'slli x28, x27, 2\n'
         template += f'add x28, x16, x28\n'
         template += f'lw x29, (x28)\n'  # target_nodes[cacndid]
         template += f'mul x30, x6, x29\n'
-        template += f'muli x30, x30, {data_size}\n'
+        # template += f'muli x30, x30, {data_size}\n'
+        template += f'slli x30, x30, 2\n'
         template += f'add x30, x17, x30\n'  # dest_vec address
 
         # Distance calculation with query
@@ -379,7 +392,8 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'li x1, {configs.spad_addr}\n'
         template += f'bgt UTHREADID, x0, .SKIP7\n'
         template += f'ld x23, {self.get_arg_offset(self.entries_addr)}(x1)\n'
-        template += f'muli x27, x13, {data_size}\n'
+        # template += f'muli x27, x13, {data_size}\n'
+        template += f'slli x27, x13, 2\n'
         template += f'add x27, x23, x27\n'
         template += f'sw x3, (x27)\n'
         template += f'.SKIP7\n'
@@ -391,7 +405,8 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'ld x21, {self.get_arg_offset(self.visited_cnt_addr)}(x1)\n'
         template += f'bgt UTHREADID, x0, .SKIP8\n'
         template += f'ld x25, {self.get_arg_offset(self.acc_visited_cnt_addr)}(x1)\n'
-        template += f'muli x26, x13, {data_size}\n'
+        # template += f'muli x26, x13, {data_size}\n'
+        template += f'slli x26, x13, 2\n'
         template += f'add x25, x25, x26\n'
         template += f'lw x26, (x25)\n'
         template += f'add x27, x26, x11\n'
@@ -411,10 +426,12 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'addi x28, UTHREADID, 0\n'
         template += f'.LOOP5\n'
         template += f'bge x28, x11, .SKIP9\n'
-        template += f'muli x29, x28, {data_size}\n'
+        # template += f'muli x29, x28, {data_size}\n'
+        template += f'slli x29, x28, 2\n'
         template += f'add x29, x10, x29\n'
         template += f'lw x30, (x29)\n' # visited_list[UTHREADID]
-        template += f'muli x31, x30, {data_size}\n'
+        # template += f'muli x31, x30, {data_size}\n'
+        template += f'slli x31, x30, 2\n'
         template += f'add x31, x9, x31\n'
         template += f'sw x0, (x31)\n'
         template += f'add x28, x28, UTHREADSZ\n'
