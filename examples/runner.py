@@ -30,13 +30,22 @@ from utils.utils import *
 packet_size = 32
 data_size = 2
 
-def get_kernel(kernel_name, num_m2ndps=1, arg=-1) :
-    kernel = getattr(sys.modules[__name__], kernel_name)
-    if arg != -1:
-        return kernel(arg)
-    else:
-        return kernel()
-    return kernel()
+# def get_kernel(kernel_name, num_m2ndps=1, arg=-1) :
+#     kernel = getattr(sys.modules[__name__], kernel_name)
+#     print(f"arg: {arg}")
+#     exit()
+#     if arg != -1:
+#         return kernel(arg)
+#     else:
+#         return kernel()
+#     return kernel()
+
+def get_kernel(args) :
+    kernel = getattr(sys.modules[__name__], args.kernel)
+    if kernel.__name__ == 'GetEntryPointsKernel':
+        return kernel(args.dataset, args.num_query, args.topk, args.graph_level, args.ef_size, args.run_level)
+    elif kernel.__name__ == 'SearchGraphKernel':
+        return kernel(args.dataset, args.num_query, args.topk, args.graph_level, args.ef_size)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--kernel', type=str, required=True, help='kernel name')
@@ -46,6 +55,14 @@ parser.add_argument('--skip_functional_sim', action='store_true', help='skip fun
 parser.add_argument('--config', type=str, default='m2ndp.config', help='config file')
 parser.add_argument('--num_m2ndps', type=int, default=1, help='number of m2ndps')
 parser.add_argument('--arg', type=float, default=-1, help='arg for kernel')
+
+# For HNSW
+parser.add_argument('--dataset', type=str, required=True, help='Dataset')
+parser.add_argument('--num_query', type=int, required=True, help='Number of query')
+parser.add_argument('--topk', type=int, required=True, help='Number of top K')
+parser.add_argument('--graph_level', type=int, required=True, help='Number of graph level')
+parser.add_argument('--ef_size', type=int, required=True, help='EF size')
+parser.add_argument('--run_level', type=int, default=-1, help='Running level')
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -59,7 +76,8 @@ if __name__ == "__main__":
             file_name = os.path.join(os.path.dirname(__file__), './cuda/sssp/build_and_run.sh')
             os.system(f'bash {file_name}')
 
-    kernel = get_kernel(args.kernel, args.num_m2ndps, args.arg)
+    # kernel = get_kernel(args.kernel, args.num_m2ndps, args.arg)
+    kernel = get_kernel(args)
     kernel_code = kernel.make_kernel()
     input_map = []
     output_map = []

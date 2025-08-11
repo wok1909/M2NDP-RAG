@@ -14,17 +14,14 @@ from ..hnsw_utils import *
 DATASET="30_siftsmall-128-euclidean_q1"
 
 DEGUG = False
-LEVEL = 1
 DIST_TYPE = 0
-VISITED_LIST_SIZE = 8192
-
-ENTRY_INIT_ID = -1
-DISTANCE_INIT_VALUE = 999999
 
 class GetEntryPointsKernel(NdpKernel):
-    def __init__(self, dataset, n_query, topk_, num_level, ef_size):
+    def __init__(self, dataset, n_query, topk_, num_level, ef_size, run_level):
         super().__init__()
-        data_path = os.path.join("/root/workspace/data", dataset, f'q{n_query}_top{topk_}_l{num_level}_ef{ef_size}')
+        data_path = os.path.join("/workspace/hnsw/data", dataset, f'q{n_query}_top{topk_}_l{num_level}_ef{ef_size}')
+
+        assert(run_level > 0)
 
         # DRAM
         self.qdata_addr = 0x800000000000
@@ -55,42 +52,49 @@ class GetEntryPointsKernel(NdpKernel):
 
         # graph info
         self.graph_file = os.path.join(os.path.dirname(__file__), f'{data_path}/text_cuhnsw.index')
-        self.num_query, self.num_data, self.num_dims, self.max_level, self.max_m, self.max_m0, self.enter_point, graphs, queries, data = read_graph_file(self.graph_file)
-        qdata_array = self.preprocess_with_data(queries, True)
+        self.num_query, self.num_data, self.num_dims, self.max_level, self.max_m, self.max_m0, self.visited_list_size, _, self.enter_point, graphs, queries, data = read_graph_file(self.graph_file)
+        qdata_array = self.preprocess_with_data(queries, is_query=True)
         target_data_array = self.preprocess_with_data(data)
-        target_nodes, graph, degree = self.make_graph(graphs, LEVEL, self.max_m)
+        # target_nodes, graph, degree = self.make_graph(graphs, run_level, self.max_m)
 
         self.qdata = pad8(np.array(qdata_array, dtype=np.int32))
         self.target_data = pad8(np.array(target_data_array, dtype=np.int32))
+
+
+        # input info
+        self.input_file = os.path.join(os.path.dirname(__file__), f'{data_path}/GetEntryPoints_{run_level}_start.txt')
+        graph_level, entries, target_nodes, graph, degree, visited, visited_list, acc_visited_cnt = read_step1_file(self.input_file)
+        assert(graph_level == run_level)
+
+        self.input_entries = pad8(np.array(entries, dtype=np.int32))
         self.target_nodes = pad8(np.array(target_nodes, dtype=np.int32))
         self.graph = pad8(np.array(graph, dtype=np.int32))
         self.degree = pad8(np.array(degree, dtype=np.int32))
-        self.graph_info = pad8(np.array([self.num_query, len(target_nodes), self.num_dims, self.max_level, self.max_m, DIST_TYPE, VISITED_LIST_SIZE], dtype=np.int32))
-
-        # input info
-        self.input_file = os.path.join(os.path.dirname(__file__), f'{data_path}/GetEntryPoints_{LEVEL}_start.txt')
-        graph_level, entries, visited, visited_list, acc_visited_cnt = read_step1_file(self.input_file)
-        assert(graph_level == LEVEL)
-
-        self.input_entries = pad8(np.array(entries, dtype=np.int32))
+        self.graph_info = pad8(np.array([self.num_query, len(target_nodes), self.num_dims, self.max_level, self.max_m, DIST_TYPE, self.visited_list_size], dtype=np.int32))
         self.input_visited = pad8(np.array(visited, dtype=np.int32))
         self.input_visited_list = pad8(np.array(visited_list, dtype=np.int32))
         self.input_acc_visited_cnt = pad8(np.array(acc_visited_cnt, dtype=np.int32))
 
+
         # output info
-        self.output_file = os.path.join(os.path.dirname(__file__), f'{data_path}/GetEntryPoints_{LEVEL}_finish.txt')
-        graph_level, entries, visited, visited_list, acc_visited_cnt = read_step1_file(self.output_file)
-        assert(graph_level == LEVEL)
+        self.output_file = os.path.join(os.path.dirname(__file__), f'{data_path}/GetEntryPoints_{run_level}_finish.txt')
+        graph_level, entries, _, _, _, visited, visited_list, acc_visited_cnt = read_step1_file(self.output_file)
+        assert(graph_level == run_level)
 
         self.output_entries = pad8(np.array(entries, dtype=np.int32))
         self.output_visited = pad8(np.array(visited, dtype=np.int32))
         self.output_visited_list = pad8(np.array(visited_list, dtype=np.int32))
         self.output_acc_visited_cnt = pad8(np.array(acc_visited_cnt, dtype=np.int32))
 
-        self.bound = len(qdata_array) * configs.data_size
+        self.bound = len(qdata_array) * configs.data_size if self.num_query <= 32 else self.num_dims * configs.ndp_units * configs.data_size
         self.input_addrs = [self.qdata_addr, self.target_data_addr, self.target_nodes_addr, self.graph_addr, self.degree_addr,
                             self.visited_addr, self.visited_list_addr, self.entries_addr, self.acc_visited_cnt_addr, self.graph_info_addr,
                             self.entry_distance_addr, self.partial_sum_addr, self.update_addr, self.candidate_distance_addr, self.visited_cnt_addr]
+
+        print(f"Visited size: {len(visited)}")
+        print(f"Target node size: {len(self.target_nodes)}")
+        print(f"Query size: {len(self.qdata)}")
+        # exit()
 
     def make_kernel(self):
         packet_size = configs.packet_size
@@ -117,47 +121,45 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'lw x7, 16(x3)\n' # max_m
         template += f'lw x8, 24(x3)\n' # visited_list_size
 
-        # Load visited variable address
-        template += f'ld x9, {self.get_arg_offset(self.visited_addr)}(x1)\n'
-        template += f'ld x10, {self.get_arg_offset(self.visited_list_addr)}(x1)\n'
-
         # Query loop when num_query bigger than 32
         template += f'li x12, 0\n'
 
-        template += self.store_registers(free_regs=[11, 13], scalar_regs=[3, 4, 5, 6, 7, 8, 9, 10, 12])
+        template += self.store_registers(free_regs=[11, 13], scalar_regs=[3, 4, 5, 6, 7, 8, 12])
         template += f'.LOOP0\n'
-        template += self.load_registers(free_regs=[16, 17], scalar_regs=[3, 4, 5, 6, 8, 9, 10, 12])
+        template += self.load_registers(free_regs=[16, 17], scalar_regs=[3, 4, 5, 6, 8, 12])
 
         # Skip if query index is out of range
-        template += f'muli x13, x12, {32}\n'
+        template += f'slli x13, x12, 5\n'
         template += f'add x13, x13, NDPID\n'
         template += f'bge x13, x4, .SKIP0\n'
 
         # Load query data
+        template += f'li x1, {configs.spad_addr}\n'
+        template += f'ld x9, {self.get_arg_offset(self.visited_addr)}(x1)\n'
+        template += f'ld x10, {self.get_arg_offset(self.visited_list_addr)}(x1)\n'
         template += f'ld x14, {self.get_arg_offset(self.qdata_addr)}(x1)\n'
+
         template += f'add x14, x14, x2\n' # query data address for current uthread
+        template += f'muli x7, x12, {32 * 4 * self.num_dims}\n'
+        template += f'add x14, x14, x7\n'
         template += f'vle32.v v1, (x14)\n'
 
         # Set visited variables
         template += f'mul x14, x5, x13\n'
-        # template += f'muli x14, x14, {data_size}\n'
         template += f'slli x14, x14, 2\n'
         template += f'add x9, x9, x14\n'  # visited
 
         template += f'mul x14, x8, x13\n'
-        # template += f'muli x14, x14, {data_size}\n'
         template += f'slli x14, x14, 2\n'
         template += f'add x10, x10, x14\n'  # visited_list
 
         # Load entryid
         template += f'ld x14, {self.get_arg_offset(self.entries_addr)}(x1)\n'
-        # template += f'muli x16, x13, {data_size}\n'
         template += f'slli x16, x13, 2\n'
         template += f'add x16, x14, x16\n'
         template += f'lw x3, (x16)\n'  # entryid
 
         template += f'ld x11, {self.get_arg_offset(self.entries_addr)}(x1)\n'
-        # template += f'muli 16, x13, {data_size}\n'
         template += f'slli 16, x13, 2\n'
         template += f'add 16, x11, 16\n'
         template += f'sw x3, (16)\n'
@@ -173,12 +175,10 @@ class GetEntryPointsKernel(NdpKernel):
         # Get entry data address
         template += f'ld x16, {self.get_arg_offset(self.target_nodes_addr)}(x1)\n'
         template += f'ld x17, {self.get_arg_offset(self.target_data_addr)}(x1)\n'
-        # template += f'muli x18, x3, {data_size}\n'
         template += f'slli x18, x3, 2\n'
         template += f'add x18, x16, x18\n'
         template += f'lw x14, (x18)\n'  # targete_nodes[entryid]
         template += f'mul x19, x6, x14\n'
-        # template += f'muli x19, x19, {data_size}\n'
         template += f'slli x19, x19, 2\n'
         template += f'add x18, x17, x19\n'  # dest_vec address
         template += f'muli x19, UTHREADID, {packet_size}\n'
@@ -296,7 +296,6 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'bge x11, x8, .SKIP3\n'  # branch if visited_cnt >= visited_list_size
         template += f'li x28, 1\n'
         template += f'sw x28, (x26)\n'  # store visited
-        # template += f'muli x29, x11, {data_size}\n'
         template += f'slli x29, x11, 2\n'
         template += f'add x29, x10, x29\n'
         template += f'sw x27, (x29)\n'  # visited_list[visited_cnt] = candid
@@ -392,7 +391,6 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'li x1, {configs.spad_addr}\n'
         template += f'bgt UTHREADID, x0, .SKIP7\n'
         template += f'ld x23, {self.get_arg_offset(self.entries_addr)}(x1)\n'
-        # template += f'muli x27, x13, {data_size}\n'
         template += f'slli x27, x13, 2\n'
         template += f'add x27, x23, x27\n'
         template += f'sw x3, (x27)\n'
@@ -405,7 +403,6 @@ class GetEntryPointsKernel(NdpKernel):
         template += f'ld x21, {self.get_arg_offset(self.visited_cnt_addr)}(x1)\n'
         template += f'bgt UTHREADID, x0, .SKIP8\n'
         template += f'ld x25, {self.get_arg_offset(self.acc_visited_cnt_addr)}(x1)\n'
-        # template += f'muli x26, x13, {data_size}\n'
         template += f'slli x26, x13, 2\n'
         template += f'add x25, x25, x26\n'
         template += f'lw x26, (x25)\n'
@@ -478,24 +475,38 @@ class GetEntryPointsKernel(NdpKernel):
       # stride = configs.packet_size
       elem_stride = int(stride / 4)
       n_data = len(data)
-      if is_query and n_data < configs.ndp_units:
-        n_data = configs.ndp_units
+      # if is_query and n_data < configs.ndp_units:
+      #   n_data = configs.ndp_units
+      n_data = (n_data + configs.ndp_units - 1) // configs.ndp_units * configs.ndp_units if is_query else n_data
       dim = len(data[0])
       pad_dim = (dim + elem_stride - 1) // elem_stride * elem_stride
       data_size = n_data * pad_dim
       processed_data = [0] * data_size
+      print(f"Data size: {data_size}")
+      print(f"Dim: {dim}")
+      print(f"n_data: {n_data}")
 
+      # if is_query:
+      #   stride_stride = elem_stride * n_data
+      #   for query_idx in range(configs.ndp_units):
+      #     for o_loop in range(int(pad_dim / elem_stride)):
+      #       for i_loop in range(elem_stride):
+      #         # print("idx: ", o_loop * elem_stride + i_loop)
+      #         if o_loop * elem_stride + i_loop < dim and query_idx < len(data):
+      #           val = data[query_idx][o_loop * elem_stride + i_loop]
+
+      #           # print(val)
+      #           processed_data[o_loop * stride_stride + query_idx * elem_stride + i_loop] = val
       if is_query:
-        stride_stride = elem_stride * n_data
-        for query_idx in range(configs.ndp_units):
-          for o_loop in range(int(pad_dim / elem_stride)):
-            for i_loop in range(elem_stride):
-              # print("idx: ", o_loop * elem_stride + i_loop)
-              if o_loop * elem_stride + i_loop < dim and query_idx < len(data):
-                val = data[query_idx][o_loop * elem_stride + i_loop]
-
-                # print(val)
-                processed_data[o_loop * stride_stride + query_idx * elem_stride + i_loop] = val
+        for ndp_query_loop in range(n_data // configs.ndp_units):
+          for o_loop in range(configs.ndp_units):
+            for i_loop in range(dim // 64):
+              for d_loop in range(64):
+                if o_loop + ndp_query_loop * configs.ndp_units < len(data):
+                  # print(f"i_loop * 64 + d_loop: {i_loop * 64 + d_loop}")
+                  # print(f"ndp_query_loop * configs.ndp_units + o_loop: {ndp_query_loop * configs.ndp_units + o_loop}")
+                  # print(f"ndp_query_loop: {ndp_query_loop}, o_loop: {o_loop}, i_loop: {i_loop}, d_loop: {d_loop}, Index: {ndp_query_loop * ((dim // (256 // 4)) * (8192 // 4)) + 64 * o_loop + 2048 * i_loop + d_loop}")
+                  processed_data[ndp_query_loop * ((dim // (256 // 4)) * (8192 // 4)) + 64 * o_loop + 2048 * i_loop + d_loop] = data[ndp_query_loop * configs.ndp_units + o_loop][i_loop * 64 + d_loop]
       else:
         for idx in range(n_data):
           for dim_idx in range(pad_dim):

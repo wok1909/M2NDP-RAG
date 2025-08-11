@@ -39,7 +39,7 @@ def get_arg_offset(addr):
 
 def read_graph_file(filename):
     graph = {}
-    num_data = num_dims = max_level = max_m = max_m0 = enter_point = None
+    num_data = num_dims = max_level = max_m = max_m0 = visited_list_size = visited_table_size = enter_point = None
     qdata = []
     data = []
 
@@ -67,6 +67,10 @@ def read_graph_file(filename):
                     parts = line.split(":")[1].split(",")
                     max_m = int(line.split(":")[1].split(",")[0].strip())
                     max_m0 = int(line.split(":")[-1].strip())
+                elif line.startswith("# visited_list_size:"):
+                    visited_list_size = int(line.split(":")[1].strip())
+                elif line.startswith("# visited_table_size:"):
+                    visited_table_size = int(line.split(":")[1].strip())
                 elif line.startswith("# enter_point:"):
                     enter_point = int(line.split(":")[1].strip())
                 mode = 0
@@ -93,11 +97,14 @@ def read_graph_file(filename):
             if src not in graph[level]:
                 graph[level][src] = []
             graph[level][src].append((dst, dist))
-    return num_query, num_data, num_dims, max_level, max_m, max_m0, enter_point, graph, qdata, data
+    return num_query, num_data, num_dims, max_level, max_m, max_m0, visited_list_size, visited_table_size, enter_point, graph, qdata, data
 
 def read_step1_file(filename):
     graph_level = None
     entry_ids = []
+    target_nodes = []
+    neighbors = []
+    degree = []
     visited = []
     visited_list = []
     acc_visited_cnt  = []
@@ -112,14 +119,23 @@ def read_step1_file(filename):
                 elif line.startswith("# Entry id:"):
                     mode = 0
                     continue
-                elif line.startswith("# Visited:"):
+                elif line.startswith("# Upper nodes:"):
                     mode = 1
                     continue
-                elif line.startswith("# Visited list:"):
+                elif line.startswith("# Neighbors:"):
                     mode = 2
                     continue
-                elif line.startswith("# Accumulate visited count:"):
+                elif line.startswith("# Degree:"):
                     mode = 3
+                    continue
+                elif line.startswith("# Visited:"):
+                    mode = 4
+                    continue
+                elif line.startswith("# Visited list:"):
+                    mode = 5
+                    continue
+                elif line.startswith("# Accumulate visited count:"):
+                    mode = 6
                     continue
                 continue
 
@@ -127,13 +143,19 @@ def read_step1_file(filename):
             if mode == 0:
                 entry_ids.append(value)
             elif mode == 1:
-                visited.append(value)
+                target_nodes.append(value)
             elif mode == 2:
-                visited_list.append(value)
+                neighbors.append(value)
             elif mode == 3:
+                degree.append(value)
+            elif mode == 4:
+                visited.append(value)
+            elif mode == 5:
+                visited_list.append(value)
+            elif mode == 6:
                 acc_visited_cnt.append(value)
 
-    return graph_level, entry_ids, visited, visited_list, acc_visited_cnt
+    return graph_level, entry_ids, target_nodes, neighbors, degree, visited, visited_list, acc_visited_cnt
 
 def read_step2_file(filename):
     topk = None
@@ -144,7 +166,7 @@ def read_step2_file(filename):
     nns = []
     distances = []
     found_cnt = []
-    visited_table = [] 
+    visited_table = []
     visited_list = []
     acc_visited_cnt = []
     neighbors = []
@@ -195,7 +217,7 @@ def read_step2_file(filename):
                     mode = 9
                     continue
                 continue
-            
+
             if mode != 7:
                 value = int(line.split(":")[1].strip())
                 if mode == 0:
@@ -216,7 +238,7 @@ def read_step2_file(filename):
                     global_cand_nodes.append(value)
                 elif mode == 9:
                     global_cand_distances.append(value)
-                
+
             elif mode == 7:
                 neighbor_info = line.split(":")[1].strip()
                 distance = int(neighbor_info.split(',')[0].strip())
